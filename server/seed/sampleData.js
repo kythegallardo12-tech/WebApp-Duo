@@ -1,5 +1,5 @@
-// Mock data for the eCommerce Inventory Management System
-// Applying Miller's Law: keeping categories and displayed items to 7±2
+// Development sample data. Loaded only by `npm run seed` (or the dev-only reset endpoint).
+// Product stock values are the opening balance; sample orders are historical and do NOT deduct stock again.
 
 export const categories = [
   { id: 'cat-1', name: 'Electronics', icon: '💻', color: '#3b82f6' },
@@ -185,7 +185,7 @@ export const orders = [
     ],
     total: 119.97,
     status: 'delivered',
-    date: '2026-11-09',
+    daysAgo: 1,
     address: '123 Rizal St, Makati City',
   },
   {
@@ -197,7 +197,7 @@ export const orders = [
     ],
     total: 299.99,
     status: 'processing',
-    date: '2026-11-10',
+    daysAgo: 0,
     address: '456 Bonifacio Ave, Quezon City',
   },
   {
@@ -210,7 +210,7 @@ export const orders = [
     ],
     total: 164.96,
     status: 'shipped',
-    date: '2026-11-08',
+    daysAgo: 2,
     address: '789 Mabini Blvd, Cebu City',
   },
   {
@@ -223,7 +223,7 @@ export const orders = [
     ],
     total: 134.98,
     status: 'pending',
-    date: '2026-11-10',
+    daysAgo: 0,
     address: '321 Luna St, Davao City',
   },
   {
@@ -235,7 +235,7 @@ export const orders = [
     ],
     total: 129.99,
     status: 'delivered',
-    date: '2026-11-07',
+    daysAgo: 3,
     address: '654 Aquino Dr, Manila',
   },
   {
@@ -248,36 +248,8 @@ export const orders = [
     ],
     total: 159.95,
     status: 'processing',
-    date: '2026-11-10',
+    daysAgo: 0,
     address: '987 Magsaysay Rd, Baguio City',
   },
 ];
 
-export const dashboardStats = {
-  totalRevenue: 45231.89,
-  totalOrders: 1523,
-  totalProducts: 10,
-  totalCustomers: 892,
-  revenueGrowth: 12.5,
-  orderGrowth: 8.3,
-  productGrowth: 2.1,
-  customerGrowth: 15.7,
-};
-
-export const revenueData = [
-  { month: 'May', revenue: 28400 },
-  { month: 'Jun', revenue: 31200 },
-  { month: 'Jul', revenue: 29800 },
-  { month: 'Aug', revenue: 35600 },
-  { month: 'Sep', revenue: 38900 },
-  { month: 'Oct', revenue: 42100 },
-  { month: 'Nov', revenue: 45200 },
-];
-
-export const topProducts = [
-  { name: 'Artisan Coffee Beans', sales: 1023, revenue: 20450 },
-  { name: 'Bestseller Novel Collection', sales: 891, revenue: 22268 },
-  { name: 'Organic Cotton T-Shirt', sales: 723, revenue: 25296 },
-  { name: 'Yoga Mat Premium', sales: 567, revenue: 34013 },
-  { name: 'Indoor Plant Set', sales: 456, revenue: 22795 },
-];
