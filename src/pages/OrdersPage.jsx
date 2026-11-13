@@ -1,21 +1,5 @@
-import { useState, useCallback } from 'react';
-import {
-  ShoppingCart,
-  Plus,
-  Search,
-  Filter,
-  CheckCircle2,
-  Clock,
-  Truck,
-  PackageCheck,
-  AlertCircle,
-  Eye,
-  Trash2,
-  ChevronRight,
-  User,
-  MapPin,
-  Calendar,
-} from 'lucide-react';
+import { useState, useCallback, useMemo } from 'react';
+import { Plus, Search, Clock, Truck, PackageCheck, AlertCircle, Eye, XCircle, ChevronRight, User, MapPin, Calendar, Trash2, Ban } from 'lucide-react';
 import GlassCard from '../components/ui/GlassCard';
 import SpotlightCard from '../components/reactbits/SpotlightCard';
 import SmartLoadingWrapper from '../components/ui/SmartLoadingWrapper';
@@ -23,243 +7,190 @@ import Modal from '../components/ui/Modal';
 import Sheet from '../components/ui/Sheet';
 import Header from '../components/layout/Header';
 import { useSmartLoader } from '../hooks/useSmartLoader';
-import { useOptimisticUpdate } from '../hooks/useOptimisticUpdate';
-import { simulateApiWithProgress } from '../utils/mockApi';
 import useStore from '../store/useStore';
+import useAuth from '../store/useAuth';
 
 /**
- * Orders Management Page
- * Applies:
- * - Peak-End Rule: Marking order as "Delivered" displays positive feedback celebration toast
- * - Fitts' Law: Large status progression pills allow effortless state mutation
- * - Optimistic Updates: Tapping status advances local progress without waiting for remote server
- * - Sheets for multi-item order configuration; Modals for order cancellation confirmation
+ * Orders
+ * - Fulfillment path: pending -> processing -> shipped -> delivered (one tap per step)
+ * - Cancellation is allowed while an order is pending or processing; it returns the
+ *   reserved stock. Shipped and delivered orders cannot be cancelled.
+ * - The server prices every order; the totals shown here before confirmation are previews.
+ * - Peak-End Rule: delivering an order ends with a positive confirmation.
  */
 
 const statusConfig = {
-  pending: { label: 'Pending Payment', color: 'bg-amber-500/15 text-amber-400 border-amber-500/30', next: 'processing', icon: Clock },
-  processing: { label: 'In Processing', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30', next: 'shipped', icon: AlertCircle },
+  pending: { label: 'Pending', color: 'bg-amber-500/15 text-amber-400 border-amber-500/30', next: 'processing', icon: Clock },
+  processing: { label: 'Processing', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30', next: 'shipped', icon: AlertCircle },
   shipped: { label: 'Shipped', color: 'bg-purple-500/15 text-purple-400 border-purple-500/30', next: 'delivered', icon: Truck },
-  delivered: { label: 'Fulfilled & Delivered', color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', next: null, icon: PackageCheck },
+  delivered: { label: 'Delivered', color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', next: null, icon: PackageCheck },
+  cancelled: { label: 'Cancelled', color: 'bg-slate-500/15 text-slate-400 border-slate-500/30', next: null, icon: Ban },
 };
+const CANCELLABLE = ['pending', 'processing'];
+const money = (n) => `$${Number(n || 0).toFixed(2)}`;
+const fmtDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '');
+const emptyForm = () => ({ customer: '', email: '', address: '', lines: [{ productId: '', qty: 1 }] });
 
 const OrdersPage = () => {
   const orders = useStore((s) => s.orders);
   const products = useStore((s) => s.products);
-  const addOrder = useStore((s) => s.addOrder);
-  const updateOrder = useStore((s) => s.updateOrder);
-  const deleteOrder = useStore((s) => s.deleteOrder);
+  const pending = useStore((s) => s.pending);
+  const loadOrders = useStore((s) => s.loadOrders);
+  const createOrder = useStore((s) => s.createOrder);
+  const transitionOrder = useStore((s) => s.transitionOrder);
+  const cancelOrder = useStore((s) => s.cancelOrder);
   const addToast = useStore((s) => s.addToast);
+  const canWrite = useAuth((s) => s.can)('orders:write');
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-
-  // Sheet & Modal state
   const [createSheet, setCreateSheet] = useState(false);
-  const [inspectSheet, setInspectSheet] = useState(null);
-  const [deleteModal, setDeleteModal] = useState({ open: false, order: null });
+  const [inspectId, setInspectId] = useState(null);
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const [form, setForm] = useState(emptyForm);
+  const [formError, setFormError] = useState(null);
 
-  // New Order Form state
-  const [newOrderForm, setNewOrderForm] = useState({
-    customer: '',
-    email: '',
-    address: '',
-    selectedProduct: products[0]?.id || '',
-    quantity: 1,
-  });
+  const fetchOrders = useCallback(() => loadOrders(), [loadOrders]);
+  const { loadingState, progress, timeLeft, error, refetch } = useSmartLoader(fetchOrders, []);
 
-  const { execute: optimisticExecute, isSyncing, syncErrors } = useOptimisticUpdate();
+  const orderable = products.filter((p) => !p.id.startsWith('tmp-'));
+  const inspect = orders.find((o) => o.id === inspectId);
 
-  const fetchOrders = useCallback(
-    (onProgress) => simulateApiWithProgress(orders, onProgress),
-    []
+  const handleAdvanceStatus = async (order) => {
+    const next = statusConfig[order.status]?.next;
+    if (!next || !canWrite || order.optimistic) return;
+    const res = await transitionOrder(order.id, next);
+    if (res.ok) {
+      addToast({
+        type: next === 'delivered' ? 'success' : 'info',
+        title: next === 'delivered' ? 'Order delivered' : 'Status updated',
+        message: `${res.order.orderNumber} is now ${statusConfig[next].label.toLowerCase()}.`,
+      });
+    }
+  };
+
+  const preview = useMemo(
+    () =>
+      form.lines.reduce((sum, l) => {
+        const p = products.find((x) => x.id === l.productId);
+        return sum + (p ? p.price * (Number(l.qty) || 0) : 0);
+      }, 0),
+    [form.lines, products]
   );
-  const { loadingState, progress, timeLeft } = useSmartLoader(fetchOrders, []);
 
-  // Instant single-tap status cycle
-  const handleAdvanceStatus = (order) => {
-    const nextStatus = statusConfig[order.status]?.next;
-    if (!nextStatus) return;
+  const setLine = (i, patch) => setForm((f) => ({ ...f, lines: f.lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)) }));
 
-    optimisticExecute({
-      localUpdate: () => {
-        updateOrder(order.id, { status: nextStatus });
-      },
-      serverSync: async () => {},
-      rollback: () => {
-        updateOrder(order.id, { status: order.status });
-      },
-    });
-
-    addToast({
-      type: nextStatus === 'delivered' ? 'success' : 'info',
-      title: 'Order Status Advanced',
-      message: `${order.id} is now marked as "${statusConfig[nextStatus].label}"`,
-    });
-  };
-
-  const handleCreateOrder = (e) => {
+  const handleCreateOrder = async (e) => {
     e.preventDefault();
-    const prod = products.find((p) => p.id === newOrderForm.selectedProduct) || products[0];
-    const qty = parseInt(newOrderForm.quantity, 10) || 1;
-    const total = prod.price * qty;
-
-    const newRecord = {
-      id: `ORD-2026-${Math.floor(100 + Math.random() * 900)}`,
-      customer: newOrderForm.customer,
-      email: newOrderForm.email,
-      address: newOrderForm.address,
-      items: [{ productId: prod.id, name: prod.name, qty, price: prod.price }],
-      total,
-      status: 'pending',
-      date: new Date().toISOString().split('T')[0],
+    setFormError(null);
+    const lines = form.lines.filter((l) => l.productId);
+    if (!form.customer.trim() || !form.address.trim()) return setFormError('Customer name and address are required.');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) return setFormError('Enter a valid customer email.');
+    if (!lines.length) return setFormError('Add at least one product.');
+    if (lines.some((l) => !Number.isInteger(Number(l.qty)) || Number(l.qty) < 1)) return setFormError('Quantities must be whole numbers of at least 1.');
+    // Combine duplicate products and check visible stock (the server re-checks atomically).
+    const combined = new Map();
+    for (const l of lines) combined.set(l.productId, (combined.get(l.productId) || 0) + Number(l.qty));
+    for (const [id, qty] of combined) {
+      const p = products.find((x) => x.id === id);
+      if (p && qty > p.stock) return setFormError(`Only ${p.stock} of "${p.name}" in stock.`);
+    }
+    const payload = {
+      customer: form.customer.trim(),
+      email: form.email.trim(),
+      address: form.address.trim(),
+      items: [...combined].map(([productId, qty]) => ({ productId, qty })),
     };
-
-    optimisticExecute({
-      localUpdate: () => addOrder(newRecord),
-      serverSync: async () => {},
-      rollback: () => deleteOrder(newRecord.id),
-    });
-
-    addToast({
-      type: 'success',
-      title: 'Order Created (Optimistic)',
-      message: `Invoice created for ${newRecord.customer} - $${total.toFixed(2)}`,
-    });
-
     setCreateSheet(false);
-    setNewOrderForm({
-      customer: '',
-      email: '',
-      address: '',
-      selectedProduct: products[0]?.id || '',
-      quantity: 1,
-    });
+    const res = await createOrder(payload);
+    if (res.ok) {
+      setForm(emptyForm());
+    } else if (['validation', 'conflict'].includes(res.error?.kind)) {
+      setFormError(res.error.message);
+      setCreateSheet(true); // keep what the user entered
+    }
   };
 
-  const handleDeleteConfirm = () => {
-    const ord = deleteModal.order;
-    if (!ord) return;
-
-    optimisticExecute({
-      localUpdate: () => deleteOrder(ord.id),
-      serverSync: async () => {},
-      rollback: () => addOrder(ord),
-    });
-
-    addToast({
-      type: 'info',
-      title: 'Order Cancelled',
-      message: `${ord.id} removed from dispatch.`,
-    });
-
-    setDeleteModal({ open: false, order: null });
+  const handleCancelConfirm = async () => {
+    const ord = cancelTarget;
+    setCancelTarget(null);
+    if (ord) await cancelOrder(ord.id);
   };
 
+  const q = search.toLowerCase();
   const filteredOrders = orders.filter((o) => {
-    const matchesSearch =
-      o.id.toLowerCase().includes(search.toLowerCase()) ||
-      o.customer.toLowerCase().includes(search.toLowerCase()) ||
-      o.email.toLowerCase().includes(search.toLowerCase());
-
-    if (!matchesSearch) return false;
+    if (q && ![o.orderNumber, o.customer, o.email].some((v) => String(v || '').toLowerCase().includes(q))) return false;
     if (statusFilter !== 'all' && o.status !== statusFilter) return false;
     return true;
   });
 
+  const live = orders.filter((o) => o.status !== 'cancelled');
+  const delivered = live.filter((o) => o.status === 'delivered').length;
+
   return (
     <div>
-      <Header
-        title="Fulfillment & Dispatch Pipeline"
-        subtitle="End-to-end customer order processing and lifecycle orchestration"
-        syncState={{ isSyncing, syncErrors }}
-      />
+      <Header title="Fulfillment & Dispatch Pipeline" subtitle="Order processing from pending to delivered" />
 
-      <div className="p-6 space-y-6">
-        {/* Metric Badges */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="p-4 sm:p-6 space-y-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <SpotlightCard className="border-blue-500/20">
-            <span className="text-xs uppercase font-semibold text-slate-400 block mb-1">Total Volume</span>
-            <span className="text-3xl font-black text-white">{orders.length} Orders</span>
+            <span className="text-xs uppercase font-semibold text-slate-400 block mb-1">Active Orders</span>
+            <span className="text-2xl sm:text-3xl font-black text-white">{live.length}</span>
           </SpotlightCard>
-
           <GlassCard className="border-amber-500/20">
             <span className="text-xs uppercase font-semibold text-slate-400 block mb-1">Awaiting Processing</span>
-            <span className="text-3xl font-black text-amber-400">
-              {orders.filter((o) => o.status === 'pending' || o.status === 'processing').length}
-            </span>
+            <span className="text-2xl sm:text-3xl font-black text-amber-400">{orders.filter((o) => o.status === 'pending' || o.status === 'processing').length}</span>
           </GlassCard>
-
           <GlassCard className="border-purple-500/20">
-            <span className="text-xs uppercase font-semibold text-slate-400 block mb-1">In Transit / Courier</span>
-            <span className="text-3xl font-black text-purple-400">
-              {orders.filter((o) => o.status === 'shipped').length}
-            </span>
+            <span className="text-xs uppercase font-semibold text-slate-400 block mb-1">In Transit</span>
+            <span className="text-2xl sm:text-3xl font-black text-purple-400">{orders.filter((o) => o.status === 'shipped').length}</span>
           </GlassCard>
-
           <GlassCard className="border-emerald-500/20">
             <span className="text-xs uppercase font-semibold text-slate-400 block mb-1">Fulfillment Rate</span>
-            <span className="text-3xl font-black text-emerald-400">
-              {Math.round((orders.filter((o) => o.status === 'delivered').length / (orders.length || 1)) * 100)}%
-            </span>
+            <span className="text-2xl sm:text-3xl font-black text-emerald-400">{Math.round((delivered / (live.length || 1)) * 100)}%</span>
           </GlassCard>
         </div>
 
-        {/* Toolbar */}
         <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-          <div className="flex flex-1 gap-3">
+          <div className="flex flex-1 flex-col sm:flex-row gap-3">
             <div className="relative flex-1 max-w-md">
-              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search orders by customer or ID..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="glass-input pl-10 text-sm h-11"
-              />
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <input type="search" aria-label="Search orders" placeholder="Search by order number, customer or email..." value={search} onChange={(e) => setSearch(e.target.value)} className="glass-input pl-10 text-sm h-11" />
             </div>
-
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="glass-input text-sm h-11 w-44"
-            >
-              <option value="all" className="bg-slate-900 text-white">All Dispatches</option>
-              <option value="pending" className="bg-slate-900 text-white">Pending</option>
-              <option value="processing" className="bg-slate-900 text-white">Processing</option>
-              <option value="shipped" className="bg-slate-900 text-white">Shipped</option>
-              <option value="delivered" className="bg-slate-900 text-white">Delivered</option>
+            <select aria-label="Filter by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="glass-input text-sm h-11 w-full sm:w-44">
+              <option value="all" className="bg-slate-900 text-white">All orders</option>
+              {Object.entries(statusConfig).map(([k, v]) => (
+                <option key={k} value={k} className="bg-slate-900 text-white">
+                  {v.label}
+                </option>
+              ))}
             </select>
           </div>
-
-          <button
-            onClick={() => setCreateSheet(true)}
-            className="btn-primary h-11 px-5 text-sm font-bold shadow-lg shadow-blue-600/30 flex items-center gap-2"
-          >
-            <Plus size={18} />
-            <span>Generate New Order</span>
-          </button>
+          {canWrite && (
+            <button
+              onClick={() => {
+                setFormError(null);
+                setCreateSheet(true);
+              }}
+              className="btn-primary h-11 px-5 text-sm font-bold shadow-lg shadow-blue-600/30 flex items-center gap-2"
+            >
+              <Plus size={18} />
+              <span>New Order</span>
+            </button>
+          )}
         </div>
 
-        {/* Smart Loading Wrapper */}
-        <SmartLoadingWrapper
-          loadingState={loadingState}
-          progress={progress}
-          timeLeft={timeLeft}
-          skeletonType="table"
-          skeletonCount={5}
-          message="Retrieving order records from distributed queue..."
-        >
+        <SmartLoadingWrapper loadingState={loadingState} progress={progress} timeLeft={timeLeft} error={error} onRetry={refetch} skeletonType="table" skeletonCount={5} message="Loading orders…">
           <GlassCard padding="p-0" className="border-white/10 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-white/10 bg-white/[0.02] text-xs uppercase tracking-wider text-slate-400">
-                    <th className="px-5 py-3.5 font-semibold">Order Reference</th>
-                    <th className="px-5 py-3.5 font-semibold">Client</th>
-                    <th className="px-5 py-3.5 font-semibold">Purchased Items</th>
-                    <th className="px-5 py-3.5 font-semibold">Grand Total</th>
-                    <th className="px-5 py-3.5 font-semibold">Status (Tap to Advance)</th>
+                    <th className="px-5 py-3.5 font-semibold">Order</th>
+                    <th className="px-5 py-3.5 font-semibold">Customer</th>
+                    <th className="px-5 py-3.5 font-semibold">Items</th>
+                    <th className="px-5 py-3.5 font-semibold">Total</th>
+                    <th className="px-5 py-3.5 font-semibold">Status{canWrite ? ' (tap to advance)' : ''}</th>
                     <th className="px-5 py-3.5 font-semibold text-right">Actions</th>
                   </tr>
                 </thead>
@@ -267,229 +198,194 @@ const OrdersPage = () => {
                   {filteredOrders.map((ord) => {
                     const cfg = statusConfig[ord.status] || statusConfig.pending;
                     const StatusIcon = cfg.icon;
-
+                    const busy = !!pending[ord.id] || ord.optimistic;
                     return (
-                      <tr key={ord.id} className="hover:bg-white/[0.02] transition-colors">
+                      <tr key={ord.id} className="hover:bg-white/[0.02] transition-colors" data-testid="order-row" data-order={ord.orderNumber}>
                         <td className="px-5 py-4">
-                          <p className="font-mono text-xs font-bold text-blue-400">{ord.id}</p>
-                          <p className="text-[11px] text-slate-400">{ord.date}</p>
+                          <p className="font-mono text-xs font-bold text-blue-400">{ord.orderNumber}</p>
+                          <p className="text-[11px] text-slate-400">{fmtDate(ord.date)}</p>
                         </td>
                         <td className="px-5 py-4">
                           <p className="font-bold text-white">{ord.customer}</p>
                           <p className="text-xs text-slate-400">{ord.email}</p>
                         </td>
-                        <td className="px-5 py-4 text-xs text-slate-300">
-                          {ord.items.map((i) => `${i.name} (×${i.qty})`).join(', ')}
-                        </td>
-                        <td className="px-5 py-4 font-black text-white">${ord.total.toFixed(2)}</td>
-                        {/* Tap to update status without waiting */}
+                        <td className="px-5 py-4 text-xs text-slate-300 max-w-[260px]">{ord.items.map((i) => `${i.name} (×${i.qty})`).join(', ')}</td>
+                        <td className="px-5 py-4 font-black text-white whitespace-nowrap">{money(ord.total)}</td>
                         <td className="px-5 py-4">
                           <button
                             onClick={() => handleAdvanceStatus(ord)}
-                            className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider border flex items-center gap-1.5 transition-all hover:scale-105 ${cfg.color}`}
-                            title={cfg.next ? `Tap to advance to ${cfg.next}` : 'Order Complete'}
+                            disabled={!cfg.next || !canWrite || busy}
+                            className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider border flex items-center gap-1.5 transition-all enabled:hover:scale-105 disabled:cursor-default ${cfg.color}`}
+                            aria-label={cfg.next && canWrite ? `${ord.orderNumber}: ${cfg.label}. Advance to ${statusConfig[cfg.next].label}` : `${ord.orderNumber}: ${cfg.label}`}
+                            data-testid="order-status"
                           >
                             <StatusIcon size={12} />
-                            <span>{cfg.label}</span>
-                            {cfg.next && <ChevronRight size={12} className="opacity-60" />}
+                            <span>{busy ? 'Saving…' : cfg.label}</span>
+                            {cfg.next && canWrite && !busy && <ChevronRight size={12} className="opacity-60" />}
                           </button>
                         </td>
-                        <td className="px-5 py-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              onClick={() => setInspectSheet(ord)}
-                              className="p-2 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white"
-                              title="Inspect Details"
-                            >
-                              <Eye size={15} />
+                        <td className="px-5 py-4 text-right whitespace-nowrap">
+                          <button onClick={() => setInspectId(ord.id)} className="p-2 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white" aria-label={`Details of ${ord.orderNumber}`}>
+                            <Eye size={15} />
+                          </button>
+                          {canWrite && CANCELLABLE.includes(ord.status) && !busy && (
+                            <button onClick={() => setCancelTarget(ord)} className="p-2 rounded-lg hover:bg-rose-500/10 text-slate-400 hover:text-rose-400" aria-label={`Cancel ${ord.orderNumber}`} title="Cancel order">
+                              <XCircle size={15} />
                             </button>
-                            <button
-                              onClick={() => setDeleteModal({ open: true, order: ord })}
-                              className="p-2 rounded-lg hover:bg-rose-500/10 text-slate-400 hover:text-rose-400"
-                              title="Cancel Order"
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
+                          )}
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
+              {filteredOrders.length === 0 && <p className="text-center text-sm text-slate-400 py-12">No orders match these filters.</p>}
             </div>
           </GlassCard>
         </SmartLoadingWrapper>
       </div>
 
-      {/* Sheet: Create Order */}
-      <Sheet
-        isOpen={createSheet}
-        onClose={() => setCreateSheet(false)}
-        title="Dispatch New Enterprise Invoice"
-      >
-        <form onSubmit={handleCreateOrder} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-              Customer Full Name
-            </label>
-            <input
-              type="text"
-              value={newOrderForm.customer}
-              onChange={(e) => setNewOrderForm({ ...newOrderForm, customer: e.target.value })}
-              className="glass-input text-sm"
-              placeholder="e.g. Elena Rostova"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-              Corporate Email
-            </label>
-            <input
-              type="email"
-              value={newOrderForm.email}
-              onChange={(e) => setNewOrderForm({ ...newOrderForm, email: e.target.value })}
-              className="glass-input text-sm"
-              placeholder="elena@enterprise.org"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-              Delivery Logistics Address
-            </label>
-            <input
-              type="text"
-              value={newOrderForm.address}
-              onChange={(e) => setNewOrderForm({ ...newOrderForm, address: e.target.value })}
-              className="glass-input text-sm"
-              placeholder="88 Tech Boulevard, Sector 4"
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-                Target Product
+      <Sheet isOpen={createSheet} onClose={() => setCreateSheet(false)} title="Create Order">
+        <form onSubmit={handleCreateOrder} className="space-y-4" noValidate>
+          {[
+            ['customer', 'Customer Full Name', 'text', 'e.g. Elena Rostova'],
+            ['email', 'Customer Email', 'email', 'elena@example.org'],
+            ['address', 'Delivery Address', 'text', '88 Tech Boulevard, Sector 4'],
+          ].map(([key, label, type, placeholder]) => (
+            <div key={key}>
+              <label htmlFor={`order-${key}`} className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                {label}
               </label>
-              <select
-                value={newOrderForm.selectedProduct}
-                onChange={(e) => setNewOrderForm({ ...newOrderForm, selectedProduct: e.target.value })}
-                className="glass-input text-sm"
-              >
-                {products.map((p) => (
-                  <option key={p.id} value={p.id} className="bg-slate-900 text-white">
-                    {p.name} (${p.price.toFixed(2)})
-                  </option>
-                ))}
-              </select>
+              <input id={`order-${key}`} type={type} value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} className="glass-input text-sm" placeholder={placeholder} required />
             </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-                Unit Quantity
-              </label>
-              <input
-                type="number"
-                min="1"
-                value={newOrderForm.quantity}
-                onChange={(e) => setNewOrderForm({ ...newOrderForm, quantity: e.target.value })}
-                className="glass-input text-sm font-bold text-white"
-                required
-              />
-            </div>
+          ))}
+
+          <fieldset className="space-y-3">
+            <legend className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Items</legend>
+            {form.lines.map((line, i) => {
+              const p = products.find((x) => x.id === line.productId);
+              return (
+                <div key={i} className="flex gap-2 items-start" data-testid="order-line">
+                  <div className="flex-1 min-w-0">
+                    <select aria-label={`Product for line ${i + 1}`} value={line.productId} onChange={(e) => setLine(i, { productId: e.target.value })} className="glass-input text-sm">
+                      <option value="" className="bg-slate-900 text-white">Choose a product…</option>
+                      {orderable.map((op) => (
+                        <option key={op.id} value={op.id} disabled={op.stock === 0} className="bg-slate-900 text-white">
+                          {op.name} — {money(op.price)} ({op.stock} in stock)
+                        </option>
+                      ))}
+                    </select>
+                    {p && p.stock <= p.minStock && <p className="text-[11px] text-amber-400 mt-1">Low stock: {p.stock} left</p>}
+                  </div>
+                  <input aria-label={`Quantity for line ${i + 1}`} type="number" min="1" step="1" value={line.qty} onChange={(e) => setLine(i, { qty: e.target.value })} className="glass-input text-sm font-bold w-20" />
+                  <button
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, lines: f.lines.length > 1 ? f.lines.filter((_, idx) => idx !== i) : f.lines }))}
+                    disabled={form.lines.length === 1}
+                    className="p-3 rounded-lg hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 disabled:opacity-20"
+                    aria-label={`Remove line ${i + 1}`}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              );
+            })}
+            <button type="button" onClick={() => setForm((f) => ({ ...f, lines: [...f.lines, { productId: '', qty: 1 }] }))} className="btn-ghost text-xs px-3 py-2 border border-white/10">
+              <Plus size={14} /> Add item
+            </button>
+          </fieldset>
+
+          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 flex justify-between text-sm">
+            <span className="text-slate-400">Estimated total</span>
+            <span className="font-black text-white">{money(preview)}</span>
           </div>
+          <p className="text-[11px] text-slate-500">Prices and stock are confirmed by the server when the order is saved.</p>
+
+          {formError && (
+            <p className="text-xs text-rose-400" role="alert">
+              {formError}
+            </p>
+          )}
 
           <div className="pt-4 border-t border-white/10 flex gap-3">
-            <button
-              type="button"
-              onClick={() => setCreateSheet(false)}
-              className="btn-ghost flex-1 py-3 text-sm justify-center"
-            >
+            <button type="button" onClick={() => setCreateSheet(false)} className="btn-ghost flex-1 py-3 text-sm justify-center">
               Cancel
             </button>
-            <button
-              type="submit"
-              className="btn-primary flex-1 py-3 text-sm font-bold justify-center shadow-lg shadow-blue-600/30"
-            >
-              Generate Order
+            <button type="submit" className="btn-primary flex-1 py-3 text-sm font-bold justify-center shadow-lg shadow-blue-600/30">
+              Create Order
             </button>
           </div>
         </form>
       </Sheet>
 
-      {/* Sheet: Order Inspector */}
-      <Sheet
-        isOpen={!!inspectSheet}
-        onClose={() => setInspectSheet(null)}
-        title="Order Specification Summary"
-      >
-        {inspectSheet && (
+      <Sheet isOpen={!!inspect} onClose={() => setInspectId(null)} title="Order Summary">
+        {inspect && (
           <div className="space-y-6">
             <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
-              <span className="text-xs font-mono text-blue-400 block font-semibold">{inspectSheet.id}</span>
-              <p className="text-lg font-black text-white mt-1">Invoice Total: ${inspectSheet.total.toFixed(2)}</p>
+              <span className="text-xs font-mono text-blue-400 block font-semibold">{inspect.orderNumber}</span>
+              <p className="text-lg font-black text-white mt-1">Total: {money(inspect.total)}</p>
+              <span className={`inline-block mt-2 text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider border ${statusConfig[inspect.status]?.color}`}>{statusConfig[inspect.status]?.label}</span>
             </div>
-
             <div className="space-y-3">
               <div className="flex items-center gap-3 text-sm text-slate-300">
-                <User size={16} className="text-blue-400" />
-                <span>{inspectSheet.customer} ({inspectSheet.email})</span>
+                <User size={16} className="text-blue-400 flex-shrink-0" />
+                <span>
+                  {inspect.customer} ({inspect.email})
+                </span>
               </div>
               <div className="flex items-center gap-3 text-sm text-slate-300">
-                <MapPin size={16} className="text-blue-400" />
-                <span>{inspectSheet.address}</span>
+                <MapPin size={16} className="text-blue-400 flex-shrink-0" />
+                <span>{inspect.address}</span>
               </div>
               <div className="flex items-center gap-3 text-sm text-slate-300">
-                <Calendar size={16} className="text-blue-400" />
-                <span>Timestamp: {inspectSheet.date}</span>
+                <Calendar size={16} className="text-blue-400 flex-shrink-0" />
+                <span>{new Date(inspect.date).toLocaleString()}</span>
               </div>
             </div>
-
             <div>
-              <h4 className="text-xs uppercase font-semibold text-slate-400 mb-3">Line Items</h4>
+              <h4 className="text-xs uppercase font-semibold text-slate-400 mb-3">Line Items (prices at time of order)</h4>
               <div className="space-y-2">
-                {inspectSheet.items.map((item, idx) => (
+                {inspect.items.map((item, idx) => (
                   <div key={idx} className="p-3 rounded-xl bg-white/[0.03] border border-white/5 flex justify-between items-center text-sm">
                     <div>
                       <p className="font-bold text-white">{item.name}</p>
-                      <p className="text-xs text-slate-400">Qty: {item.qty} × ${item.price.toFixed(2)}</p>
+                      <p className="text-xs text-slate-400">
+                        {item.sku} · {item.qty} × {money(item.price)}
+                      </p>
                     </div>
-                    <span className="font-black text-emerald-400">${(item.qty * item.price).toFixed(2)}</span>
+                    <span className="font-black text-emerald-400">{money(item.qty * item.price)}</span>
                   </div>
                 ))}
               </div>
             </div>
+            {inspect.statusHistory?.length > 0 && (
+              <div>
+                <h4 className="text-xs uppercase font-semibold text-slate-400 mb-3">History</h4>
+                <ol className="space-y-1 text-xs text-slate-300">
+                  {inspect.statusHistory.map((h, i) => (
+                    <li key={i}>
+                      <span className="font-semibold capitalize">{h.status}</span> · {new Date(h.at).toLocaleString()}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
           </div>
         )}
       </Sheet>
 
-      {/* Modal: Delete Confirmation */}
-      <Modal
-        isOpen={deleteModal.open}
-        onClose={() => setDeleteModal({ open: false, order: null })}
-        title="Void Customer Order"
-        size="sm"
-      >
+      <Modal isOpen={!!cancelTarget} onClose={() => setCancelTarget(null)} title="Cancel Order" size="sm">
         <div className="text-center py-2">
-          <p className="text-sm text-slate-300 mb-6">
-            Are you sure you wish to void order <strong className="text-white">{deleteModal.order?.id}</strong>?
+          <p className="text-sm text-slate-300 mb-2">
+            Cancel order <strong className="text-white">{cancelTarget?.orderNumber}</strong> for {cancelTarget?.customer}?
           </p>
+          <p className="text-xs text-slate-400 mb-6">The reserved items go back into stock. This cannot be undone.</p>
           <div className="flex gap-3">
-            <button
-              onClick={() => setDeleteModal({ open: false, order: null })}
-              className="btn-ghost flex-1 py-3 text-sm justify-center"
-            >
-              Abort
+            <button onClick={() => setCancelTarget(null)} className="btn-ghost flex-1 py-3 text-sm justify-center">
+              Keep Order
             </button>
-            <button
-              onClick={handleDeleteConfirm}
-              className="btn-danger flex-1 py-3 text-sm font-bold justify-center"
-            >
-              Confirm Void
+            <button onClick={handleCancelConfirm} className="btn-danger flex-1 py-3 text-sm font-bold justify-center">
+              Cancel Order
             </button>
           </div>
         </div>
@@ -499,4 +395,3 @@ const OrdersPage = () => {
 };
 
 export default OrdersPage;
-

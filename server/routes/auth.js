@@ -16,14 +16,16 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Enter your password.').max(200),
 });
 
-const sessionPayload = (user, session) => ({
+const sessionPayload = (user, session, features) => ({
   user: { ...serializeUser(user), permissions: permissionsFor(user.role) },
   csrfToken: session.csrfToken,
   expiresAt: new Date(session.authAt + session.ttlMs).toISOString(),
+  features,
 });
 
-export function authRoutes({ ttlMs, loginLimit }) {
+export function authRoutes({ ttlMs, loginLimit, allowDevReset }) {
   const router = Router();
+  const features = { devReset: !!allowDevReset };
 
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -52,7 +54,7 @@ export function authRoutes({ ttlMs, loginLimit }) {
       User.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } }).catch(() => {});
       req.session.save((saveErr) => {
         if (saveErr) return next(saveErr);
-        res.json(sessionPayload(user, req.session));
+        res.json(sessionPayload(user, req.session, features));
       });
     });
   });
@@ -68,7 +70,7 @@ export function authRoutes({ ttlMs, loginLimit }) {
 
   router.get('/me', requireAuth, (req, res) => {
     if (!req.session.csrfToken) issueCsrfToken(req.session);
-    res.json(sessionPayload(req.user, req.session));
+    res.json(sessionPayload(req.user, req.session, features));
   });
 
   return router;

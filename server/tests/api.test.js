@@ -547,3 +547,25 @@ describe('seeding and legacy import', () => {
     assert.equal(bad.status, 400);
   });
 });
+
+describe('persistence', () => {
+  beforeEach(() => resetData());
+
+  test('products survive a server restart', async () => {
+    const c = await login(app);
+    const cat = await firstCategory(c);
+    const created = (await c.post('/api/products', { name: 'Restart Proof', sku: 'RESTART-1', category: cat, price: 5, stock: 3 })).body.product;
+
+    // Simulate a restart: drop the DB connection and build a fresh app instance.
+    const { disconnectDb, connectDb } = await import('../db.js');
+    await disconnectDb();
+    await connectDb(replSet.getUri('stockflow_test'));
+    app = makeApp();
+
+    const c2 = await login(app);
+    const res = await c2.get(`/api/products/${created.id}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.product.name, 'Restart Proof');
+    assert.equal(res.body.product.stock, 3);
+  });
+});

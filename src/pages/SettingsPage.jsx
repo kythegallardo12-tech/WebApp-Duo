@@ -1,40 +1,39 @@
-import { useState } from 'react';
-import {
-  Sliders,
-  Database,
-  Layers,
-  Zap,
-  Clock,
-  Sparkles,
-  ShieldCheck,
-  CheckCircle2,
-  RefreshCw,
-  Palette,
-  ExternalLink,
-  Info,
-} from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { Database, ShieldCheck, CheckCircle2, Users, UploadCloud, RotateCcw, Sliders, Building2, UserPlus, Info } from 'lucide-react';
 import GlassCard from '../components/ui/GlassCard';
 import SpotlightCard from '../components/reactbits/SpotlightCard';
-import ShinyText from '../components/reactbits/ShinyText';
 import Modal from '../components/ui/Modal';
 import Sheet from '../components/ui/Sheet';
 import Header from '../components/layout/Header';
-import { setNetworkDelay, getNetworkDelay, simulateApiWithProgress } from '../utils/mockApi';
-import { useSmartLoader } from '../hooks/useSmartLoader';
 import SmartLoadingWrapper from '../components/ui/SmartLoadingWrapper';
+import { useSmartLoader } from '../hooks/useSmartLoader';
+import { api } from '../api/client';
 import useStore from '../store/useStore';
+import useAuth from '../store/useAuth';
 
 /**
- * Settings & Heuristic Compliance Engine
- * Contains live interactive verification suites for:
- * 1. Smart Loading Tiers:
- *    - <1s: Show nothing (instant appearance)
- *    - 1-10s: Show content-shaped skeleton
- *    - >10s: Show progress bar with time left
- * 2. Optimistic Update Tester ("Tap = update first, sync later")
- * 3. Modal vs Sheet Heuristics Matrix
- * 4. UX Design Laws Compliance Index
+ * Settings
+ * 1. Workspace preferences (stored in this browser only — interface choices, no business data)
+ * 2. Business settings (MongoDB; admins edit, staff read)
+ * 3. Team & access (admins manage accounts; role matrix shown to everyone)
+ * 4. Data tools: explicit import of data saved by the old browser-only version,
+ *    and a development-only reset to sample data
+ * 5. UX laws audit
  */
+
+const LEGACY_KEYS = ['stockflow-storage', 'webapp-duo-workspace-v1'];
+const importedFlag = (key) => `stockflow-legacy-imported:${key}`;
+
+const ROLE_MATRIX = [
+  ['View dashboard, products, inventory and orders', true, true],
+  ['Create and edit products', true, true],
+  ['Adjust stock', true, true],
+  ['Create, advance and cancel orders', true, true],
+  ['Delete products', false, true],
+  ['Manage users', false, true],
+  ['Edit business settings', false, true],
+  ['Import browser data / reset sample data', false, true],
+];
 
 const uxLawsData = [
   {
@@ -93,179 +92,372 @@ const uxLawsData = [
   },
 ];
 
-const SettingsPage = () => {
-  const addToast = useStore((s) => s.addToast);
-  const [currentDelay, setCurrentDelay] = useState(getNetworkDelay());
-  const [testDuration, setTestDuration] = useState(null);
-  const [modalDemoOpen, setModalDemoOpen] = useState(false);
-  const [sheetDemoOpen, setSheetDemoOpen] = useState(false);
+function readLegacy() {
+  const found = [];
+  for (const key of LEGACY_KEYS) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const root = parsed?.state ?? parsed?.data ?? parsed?.workspace ?? parsed;
+      const products = Array.isArray(root?.products) ? root.products.length : 0;
+      const orders = Array.isArray(root?.orders) ? root.orders.length : 0;
+      if (products || orders) found.push({ key, raw, products, orders, imported: localStorage.getItem(importedFlag(key)) === '1' });
+    } catch {
+      /* unreadable entries are ignored */
+    }
+  }
+  return found;
+}
 
-  // Live test hook for smart loader
-  const {
-    loadingState,
-    progress,
-    timeLeft,
-    refetch,
-  } = useSmartLoader(
-    (onProg) => {
-      if (!testDuration) return Promise.resolve(true);
-      return simulateApiWithProgress({ success: true }, onProg, testDuration);
-    },
-    [testDuration]
-  );
+const BusinessSettings = ({ canEdit }) => {
+  const settings = useStore((s) => s.settings);
+  const loadSettings = useStore((s) => s.loadSettings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  const fetchSettings = useCallback(() => loadSettings(), [loadSettings]);
+  const { loadingState, error, refetch } = useSmartLoader(fetchSettings, []);
+  const [draft, setDraft] = useState(null); // { version, values }
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState(null);
+  // Edits are kept per settings version; a newer server version resets the form.
+  const form = settings
+    ? draft && draft.version === settings.version
+      ? draft.values
+      : { businessName: settings.businessName, currency: settings.currency, defaultMinStock: settings.defaultMinStock, lowStockAlerts: settings.lowStockAlerts }
+    : null;
+  const setForm = (values) => setDraft({ version: settings.version, values });
 
-  const runTierTest = (ms, label) => {
-    setTestDuration(ms);
-    addToast({
-      type: 'info',
-      title: `Initiating ${label} Test`,
-      message: `Triggering simulated request with ${ms / 1000}s latency tier.`,
-    });
+  const submit = async (e) => {
+    e.preventDefault();
+    setFormError(null);
+    if (!form.businessName.trim()) return setFormError('Business name is required.');
+    if (!/^[A-Za-z]{3}$/.test(form.currency)) return setFormError('Currency must be a 3-letter code like USD.');
+    if (!Number.isInteger(Number(form.defaultMinStock)) || Number(form.defaultMinStock) < 0) return setFormError('Default threshold must be a whole number of 0 or more.');
+    setSaving(true);
+    const res = await saveSettings({ ...form, businessName: form.businessName.trim(), defaultMinStock: Number(form.defaultMinStock) });
+    setSaving(false);
+    if (!res.ok) setFormError(res.error?.code === 'STALE_VERSION' ? 'Someone else saved settings first. Their values are now shown.' : res.error?.message);
   };
 
   return (
-    <div>
-      <Header
-        title="Settings & UX Architecture Matrix"
-        subtitle="Live verification workbench for design heuristics, network simulations, and MERN framework compliance"
-      />
-
-      <div className="p-6 space-y-8">
-        {/* Smart Loading Interactive Verification Sandbox */}
-        <SpotlightCard className="border-blue-500/30 p-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Clock size={18} className="text-blue-400" />
-                <h3 className="text-lg font-black text-white">Smart Loading Strategy Live Simulator</h3>
+    <GlassCard className="p-6 border-white/10">
+      <h3 className="text-base font-bold text-white flex items-center gap-2 mb-1">
+        <Building2 size={18} className="text-blue-400" /> Business Settings
+      </h3>
+      <p className="text-xs text-slate-400 mb-5">{canEdit ? 'Shared by everyone in this workspace.' : 'Only admins can change these.'}</p>
+      <SmartLoadingWrapper loadingState={settings ? 'done' : loadingState} error={error} onRetry={refetch} skeletonType="card" skeletonCount={1}>
+        {form && (
+          <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-4" noValidate>
+            <fieldset disabled={!canEdit || saving} className="contents">
+              <div className="sm:col-span-2">
+                <label htmlFor="biz-name" className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Business name</label>
+                <input id="biz-name" className="glass-input text-sm" value={form.businessName} onChange={(e) => setForm({ ...form, businessName: e.target.value })} maxLength={80} />
               </div>
-              <p className="text-xs text-slate-300">
-                Rule: Under 1s = show nothing | 1s to 10s = page skeleton | Over 10s = progress bar + time remaining
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => runTierTest(500, '< 1s Snappy')}
-                className="btn-ghost text-xs px-3.5 py-2 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"
-              >
-                Test Tier 1 (&lt; 1s: Nothing)
-              </button>
-              <button
-                onClick={() => runTierTest(3500, '1-10s Skeleton')}
-                className="btn-ghost text-xs px-3.5 py-2 border border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
-              >
-                Test Tier 2 (3.5s: Skeleton)
-              </button>
-              <button
-                onClick={() => runTierTest(12000, '> 10s Progress Bar')}
-                className="btn-ghost text-xs px-3.5 py-2 border border-blue-500/40 text-blue-400 hover:bg-blue-500/10"
-              >
-                Test Tier 3 (12s: Progress+Time)
-              </button>
-            </div>
-          </div>
-
-          <div className="p-4 rounded-xl bg-slate-950/60 border border-white/5 min-h-[160px] flex items-center justify-center">
-            {testDuration ? (
-              <div className="w-full">
-                <div className="flex justify-between items-center text-xs text-slate-400 mb-2">
-                  <span>Current Loading Tier State: <strong className="text-blue-400 uppercase font-mono">{loadingState}</strong></span>
-                  <span>Configured Latency: {testDuration / 1000}s</span>
-                </div>
-                <SmartLoadingWrapper
-                  loadingState={loadingState}
-                  progress={progress}
-                  timeLeft={timeLeft}
-                  skeletonType="stats"
-                  skeletonCount={3}
-                  message={`Processing extended ${testDuration / 1000}s telemetry ingestion...`}
-                >
-                  <div className="p-6 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-center">
-                    <CheckCircle2 size={32} className="mx-auto text-emerald-400 mb-2" />
-                    <h4 className="text-base font-bold text-white">Execution Complete</h4>
-                    <p className="text-xs text-slate-300 mt-1">
-                      Loading finished successfully following exact time tier transitions.
-                    </p>
-                  </div>
-                </SmartLoadingWrapper>
+              <div>
+                <label htmlFor="biz-currency" className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Currency code</label>
+                <input id="biz-currency" className="glass-input text-sm uppercase" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} maxLength={3} />
               </div>
-            ) : (
-              <p className="text-xs text-slate-400 italic">
-                Click one of the three test buttons above to simulate different loading tiers in real time.
-              </p>
+              <div>
+                <label htmlFor="biz-min" className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Default low-stock threshold</label>
+                <input id="biz-min" type="number" min="0" step="1" className="glass-input text-sm" value={form.defaultMinStock} onChange={(e) => setForm({ ...form, defaultMinStock: e.target.value })} />
+              </div>
+              <label className="sm:col-span-2 flex items-center gap-3 text-sm text-slate-300">
+                <input type="checkbox" checked={form.lowStockAlerts} onChange={(e) => setForm({ ...form, lowStockAlerts: e.target.checked })} className="w-4 h-4 accent-blue-500" />
+                Show low-stock alerts on the inventory page
+              </label>
+            </fieldset>
+            {formError && <p className="sm:col-span-2 text-xs text-rose-400" role="alert">{formError}</p>}
+            {canEdit && (
+              <div className="sm:col-span-2">
+                <button type="submit" disabled={saving} className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-60">
+                  {saving ? 'Saving…' : 'Save settings'}
+                </button>
+              </div>
             )}
+          </form>
+        )}
+      </SmartLoadingWrapper>
+    </GlassCard>
+  );
+};
+
+const TeamManager = () => {
+  const me = useAuth((s) => s.user);
+  const addToast = useStore((s) => s.addToast);
+  const fetchUsers = useCallback(() => api.users(), []);
+  const { data, setData, loadingState, error, refetch } = useSmartLoader(fetchUsers, []);
+  const [sheet, setSheet] = useState(false);
+  const [form, setForm] = useState({ name: '', email: '', role: 'staff', password: '' });
+  const [formError, setFormError] = useState(null);
+  const [busy, setBusy] = useState(null);
+
+  const update = async (user, patch) => {
+    setBusy(user.id);
+    try {
+      const { user: saved } = await api.updateUser(user.id, patch);
+      setData((d) => ({ items: d.items.map((u) => (u.id === saved.id ? saved : u)) }));
+      addToast({ type: 'success', title: 'User updated', message: `${saved.name} is now ${saved.active ? saved.role : 'deactivated'}.` });
+    } catch (err) {
+      addToast({ type: 'error', title: 'User not updated', message: err.message });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const create = async (e) => {
+    e.preventDefault();
+    setFormError(null);
+    try {
+      const { user } = await api.createUser(form);
+      setData((d) => ({ items: [...(d?.items || []), user] }));
+      setSheet(false);
+      setForm({ name: '', email: '', role: 'staff', password: '' });
+      addToast({ type: 'success', title: 'User created', message: `${user.name} can now sign in.` });
+    } catch (err) {
+      setFormError(err.message);
+    }
+  };
+
+  return (
+    <GlassCard padding="p-0" className="border-white/10 overflow-hidden">
+      <div className="p-6 border-b border-white/10 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="text-base font-bold text-white flex items-center gap-2"><Users size={18} className="text-blue-400" /> Team</h3>
+          <p className="text-xs text-slate-400 mt-0.5">Accounts are created here by an admin. There is no public sign-up.</p>
+        </div>
+        <button onClick={() => setSheet(true)} className="btn-primary px-4 py-2.5 text-sm font-semibold"><UserPlus size={16} /> Add user</button>
+      </div>
+      <SmartLoadingWrapper loadingState={loadingState} error={error} onRetry={refetch} skeletonType="table" skeletonCount={3}>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-slate-400">
+                <th className="px-6 py-3 font-semibold">User</th>
+                <th className="px-6 py-3 font-semibold">Role</th>
+                <th className="px-6 py-3 font-semibold">Status</th>
+                <th className="px-6 py-3 font-semibold">Last sign-in</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.03]">
+              {(data?.items || []).map((u) => {
+                const self = u.id === me?.id;
+                return (
+                  <tr key={u.id}>
+                    <td className="px-6 py-3"><p className="font-semibold text-white">{u.name}{self && <span className="text-xs text-slate-500"> (you)</span>}</p><p className="text-xs text-slate-400">{u.email}</p></td>
+                    <td className="px-6 py-3">
+                      <select aria-label={`Role for ${u.name}`} value={u.role} disabled={self || busy === u.id} onChange={(e) => update(u, { role: e.target.value })} className="glass-input text-xs h-9 w-28">
+                        <option value="staff" className="bg-slate-900">Staff</option>
+                        <option value="admin" className="bg-slate-900">Admin</option>
+                      </select>
+                    </td>
+                    <td className="px-6 py-3">
+                      <button disabled={self || busy === u.id} onClick={() => update(u, { active: !u.active })} className={`text-[11px] px-2.5 py-1 rounded-full font-bold border ${u.active ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-400 border-white/10'} disabled:opacity-60`}>
+                        {u.active ? 'Active' : 'Deactivated'}
+                      </button>
+                    </td>
+                    <td className="px-6 py-3 text-xs text-slate-400">{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </SmartLoadingWrapper>
+
+      <Sheet isOpen={sheet} onClose={() => setSheet(false)} title="Add a team member">
+        <form onSubmit={create} className="space-y-4" noValidate>
+          {[['name', 'Full name', 'text'], ['email', 'Email', 'email'], ['password', 'Temporary password (min 10 characters)', 'password']].map(([k, label, type]) => (
+            <div key={k}>
+              <label htmlFor={`user-${k}`} className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">{label}</label>
+              <input id={`user-${k}`} type={type} autoComplete={type === 'password' ? 'new-password' : 'off'} value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} className="glass-input text-sm" />
+            </div>
+          ))}
+          <div>
+            <label htmlFor="user-role" className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Role</label>
+            <select id="user-role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="glass-input text-sm">
+              <option value="staff" className="bg-slate-900">Staff — products, stock and orders</option>
+              <option value="admin" className="bg-slate-900">Admin — everything, including users and settings</option>
+            </select>
+          </div>
+          {formError && <p className="text-xs text-rose-400" role="alert">{formError}</p>}
+          <button type="submit" className="btn-primary w-full justify-center py-3 text-sm font-bold">Create account</button>
+        </form>
+      </Sheet>
+    </GlassCard>
+  );
+};
+
+const DataTools = ({ canImport, canReset }) => {
+  const addToast = useStore((s) => s.addToast);
+  const [legacy, setLegacy] = useState(() => readLegacy());
+  const [busy, setBusy] = useState(null);
+  const [resetOpen, setResetOpen] = useState(false);
+
+  const refreshAll = () => {
+    const s = useStore.getState();
+    s.loadProducts().catch(() => {});
+    s.loadOrders().catch(() => {});
+    s.loadCategories().catch(() => {});
+    s.loadSettings().catch(() => {});
+    useStore.setState((st) => ({ dataVersion: st.dataVersion + 1 }));
+  };
+
+  const runImport = async (entry) => {
+    setBusy(entry.key);
+    try {
+      const { counts } = await api.importLegacy(entry.key, entry.raw);
+      // Keep the local copy until the user removes it; only remember that it was imported.
+      localStorage.setItem(importedFlag(entry.key), '1');
+      setLegacy(readLegacy());
+      refreshAll();
+      addToast({ type: 'success', title: 'Browser data imported', message: `${counts.products} products and ${counts.orders} orders added (${counts.skippedProducts + counts.skippedOrders} already existed).` });
+    } catch (err) {
+      if (err.code === 'ALREADY_IMPORTED') {
+        localStorage.setItem(importedFlag(entry.key), '1');
+        setLegacy(readLegacy());
+      }
+      addToast({ type: 'error', title: 'Import failed', message: err.message });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const removeLocal = (entry) => {
+    localStorage.removeItem(entry.key);
+    localStorage.removeItem(importedFlag(entry.key));
+    setLegacy(readLegacy());
+  };
+
+  const runReset = async () => {
+    setResetOpen(false);
+    setBusy('reset');
+    try {
+      const { counts } = await api.devReset();
+      refreshAll();
+      addToast({ type: 'success', title: 'Sample data restored', message: `${counts.products} products and ${counts.orders} orders loaded.` });
+    } catch (err) {
+      addToast({ type: 'error', title: 'Reset failed', message: err.message });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (!canImport && !canReset) return null;
+
+  return (
+    <GlassCard className="p-6 border-white/10 space-y-5">
+      <div>
+        <h3 className="text-base font-bold text-white flex items-center gap-2"><Database size={18} className="text-blue-400" /> Data tools</h3>
+        <p className="text-xs text-slate-400 mt-0.5">Nothing here runs automatically.</p>
+      </div>
+
+      {canImport && (
+        <div className="space-y-3">
+          <h4 className="text-sm font-semibold text-white flex items-center gap-2"><UploadCloud size={15} /> Import data saved in this browser</h4>
+          {legacy.length === 0 ? (
+            <p className="text-xs text-slate-400">No data from the earlier browser-only version was found in this browser.</p>
+          ) : (
+            legacy.map((entry) => (
+              <div key={entry.key} className="p-4 rounded-xl bg-white/[0.03] border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-white font-mono">{entry.key}</p>
+                  <p className="text-xs text-slate-400">{entry.products} products · {entry.orders} orders{entry.imported ? ' · already imported' : ''}</p>
+                </div>
+                <div className="flex gap-2">
+                  {!entry.imported && (
+                    <button onClick={() => runImport(entry)} disabled={!!busy} className="btn-primary px-4 py-2 text-xs font-semibold disabled:opacity-60">
+                      {busy === entry.key ? 'Importing…' : 'Import to database'}
+                    </button>
+                  )}
+                  {entry.imported && (
+                    <button onClick={() => removeLocal(entry)} className="btn-ghost px-4 py-2 text-xs border border-white/10">Remove local copy</button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+          <p className="text-[11px] text-slate-500 flex items-start gap-1.5"><Info size={12} className="mt-0.5 flex-shrink-0" />Products are matched by SKU and orders by their old id, so nothing is duplicated. Imported stock is the opening balance; imported orders do not deduct stock again. The local copy stays until you remove it.</p>
+        </div>
+      )}
+
+      {canReset && (
+        <div className="pt-4 border-t border-white/5 space-y-2">
+          <h4 className="text-sm font-semibold text-white flex items-center gap-2"><RotateCcw size={15} /> Reset to sample data <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">development only</span></h4>
+          <p className="text-xs text-slate-400">Deletes all products, orders and stock history, then loads the sample catalog. User accounts are kept.</p>
+          <button onClick={() => setResetOpen(true)} disabled={!!busy} className="btn-danger px-4 py-2 text-xs font-semibold disabled:opacity-60">{busy === 'reset' ? 'Resetting…' : 'Reset workspace data'}</button>
+        </div>
+      )}
+
+      <Modal isOpen={resetOpen} onClose={() => setResetOpen(false)} title="Reset all business data?" size="sm">
+        <p className="text-sm text-slate-300 mb-6">Every product, order and stock movement will be deleted and replaced with sample data. This cannot be undone.</p>
+        <div className="flex gap-3">
+          <button onClick={() => setResetOpen(false)} className="btn-ghost flex-1 justify-center py-2.5 text-sm">Keep data</button>
+          <button onClick={runReset} className="btn-danger flex-1 justify-center py-2.5 text-sm font-bold">Reset</button>
+        </div>
+      </Modal>
+    </GlassCard>
+  );
+};
+
+const SettingsPage = () => {
+  const can = useAuth((s) => s.can);
+  const features = useAuth((s) => s.features);
+  const user = useAuth((s) => s.user);
+  const productView = useStore((s) => s.productView);
+  const setProductView = useStore((s) => s.setProductView);
+  const sidebarOpen = useStore((s) => s.sidebarOpen);
+  const toggleSidebar = useStore((s) => s.toggleSidebar);
+
+  return (
+    <div>
+      <Header title="Settings" subtitle="Workspace preferences, business settings and team access" />
+
+      <div className="p-4 sm:p-6 space-y-8">
+        <SpotlightCard className="border-blue-500/30 p-6">
+          <h3 className="text-base font-bold text-white flex items-center gap-2 mb-1"><Sliders size={18} className="text-blue-400" /> Workspace preferences</h3>
+          <p className="text-xs text-slate-400 mb-5">Saved in this browser only. These never include business data.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <span className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Default product layout</span>
+              <div className="flex gap-2" role="radiogroup" aria-label="Default product layout">
+                {['grid', 'list'].map((v) => (
+                  <button key={v} role="radio" aria-checked={productView === v} onClick={() => setProductView(v)} className={`flex-1 py-2 rounded-xl text-xs font-bold border capitalize ${productView === v ? 'bg-blue-600 border-blue-400 text-white' : 'border-white/10 text-slate-400'}`}>
+                    {v === 'list' ? 'Table' : 'Grid'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="flex items-center gap-3 text-sm text-slate-300 sm:mt-6">
+              <input type="checkbox" checked={sidebarOpen} onChange={toggleSidebar} className="w-4 h-4 accent-blue-500" />
+              Expanded sidebar on large screens
+            </label>
           </div>
         </SpotlightCard>
 
-        {/* Modal vs Sheet Interactive Demonstrator */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <GlassCard className="p-6 border-white/10">
-            <h4 className="text-base font-bold text-white mb-2 flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-              Modal Pattern Usage Heuristic
-            </h4>
-            <p className="text-xs text-slate-300 mb-4 leading-relaxed">
-              <strong>When to use Modal:</strong> Interruptive, high-consequence binary decisions, critical confirmation prompts, destructive deletions. Preserves focus by locking background context.
-            </p>
-            <button
-              onClick={() => setModalDemoOpen(true)}
-              className="btn-danger text-xs px-4 py-2.5 w-full justify-center font-bold"
-            >
-              Trigger Modal Demonstration
-            </button>
-          </GlassCard>
+        <BusinessSettings canEdit={can('settings:write')} />
 
-          <GlassCard className="p-6 border-white/10">
-            <h4 className="text-base font-bold text-white mb-2 flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-              Sheet Pattern Usage Heuristic
-            </h4>
-            <p className="text-xs text-slate-300 mb-4 leading-relaxed">
-              <strong>When to use Sheet:</strong> Deep multi-step configuration, multi-attribute creation/editing, large form submissions, rich inspection without losing page orientation.
-            </p>
-            <button
-              onClick={() => setSheetDemoOpen(true)}
-              className="btn-primary text-xs px-4 py-2.5 w-full justify-center font-bold shadow-lg shadow-blue-600/30"
-            >
-              Trigger Sheet Demonstration
-            </button>
-          </GlassCard>
-        </div>
+        {can('users:manage') && <TeamManager />}
 
-        {/* UX Design Laws Compliance Matrix */}
         <GlassCard padding="p-0" className="border-white/10 overflow-hidden">
-          <div className="p-6 border-b border-white/10 bg-white/[0.02]">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <ShieldCheck size={18} className="text-emerald-400" />
-              UX Laws & Human Factor Engineering Audit
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Direct verification of all design heuristics requested in project specification
-            </p>
+          <div className="p-6 border-b border-white/10">
+            <h3 className="text-base font-bold text-white flex items-center gap-2"><ShieldCheck size={18} className="text-emerald-400" /> Roles & permissions</h3>
+            <p className="text-xs text-slate-400 mt-0.5">You are signed in as <strong className="text-white">{user?.role}</strong>. These rules are enforced by the server.</p>
           </div>
-
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className="w-full text-left text-sm" data-testid="role-matrix">
               <thead>
-                <tr className="border-b border-white/10 bg-white/[0.01] text-xs uppercase tracking-wider text-slate-400">
-                  <th className="px-6 py-3.5 font-semibold">Design Heuristic</th>
-                  <th className="px-6 py-3.5 font-semibold">Cognitive Principle</th>
-                  <th className="px-6 py-3.5 font-semibold">StockFlow System Implementation</th>
-                  <th className="px-6 py-3.5 font-semibold text-right">Validation</th>
+                <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-slate-400">
+                  <th className="px-6 py-3 font-semibold">Capability</th>
+                  <th className="px-6 py-3 font-semibold text-center">Staff</th>
+                  <th className="px-6 py-3 font-semibold text-center">Admin</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.03]">
-                {uxLawsData.map((law, idx) => (
-                  <tr key={idx} className="hover:bg-white/[0.02] transition-colors">
-                    <td className="px-6 py-4 font-bold text-white whitespace-nowrap">{law.name}</td>
-                    <td className="px-6 py-4 text-xs text-slate-400 max-w-xs">{law.concept}</td>
-                    <td className="px-6 py-4 text-xs text-slate-300 max-w-sm">{law.implementation}</td>
-                    <td className="px-6 py-4 text-right">
-                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-                        <CheckCircle2 size={12} /> {law.status}
-                      </span>
-                    </td>
+                {ROLE_MATRIX.map(([label, staff, admin]) => (
+                  <tr key={label}>
+                    <td className="px-6 py-3 text-slate-300">{label}</td>
+                    <td className="px-6 py-3 text-center">{staff ? <CheckCircle2 size={15} className="inline text-emerald-400" aria-label="Allowed" /> : <span className="text-slate-600" aria-label="Not allowed">—</span>}</td>
+                    <td className="px-6 py-3 text-center">{admin ? <CheckCircle2 size={15} className="inline text-emerald-400" aria-label="Allowed" /> : <span className="text-slate-600" aria-label="Not allowed">—</span>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -273,95 +465,37 @@ const SettingsPage = () => {
           </div>
         </GlassCard>
 
-        {/* MERN Stack & Framework Compliance */}
-        <GlassCard className="border-white/10 p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-3 rounded-xl bg-blue-500/10 text-blue-400">
-              <Database size={24} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-white">MERN Architecture & Compliance Summary</h3>
-              <p className="text-xs text-slate-400">Full stack enterprise compliance specifications</p>
-            </div>
-          </div>
+        <DataTools canImport={can('data:import')} canReset={can('data:reset') && !!features?.devReset} />
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
-            <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
-              <span className="text-[10px] uppercase font-bold text-blue-400 block mb-1">M - MongoDB / Database</span>
-              <p className="text-slate-300">Document schematics mapped for products, orders, categories, and logs.</p>
-            </div>
-            <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
-              <span className="text-[10px] uppercase font-bold text-blue-400 block mb-1">E - Express.js REST</span>
-              <p className="text-slate-300">RESTful CRUD endpoints with optimistic update contract and zero wait time.</p>
-            </div>
-            <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
-              <span className="text-[10px] uppercase font-bold text-blue-400 block mb-1">R - React 19 Frontend</span>
-              <p className="text-slate-300">SPA with GSAP, Lenis smooth scrolling, React Bits, and glassmorphism theme.</p>
-            </div>
-            <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
-              <span className="text-[10px] uppercase font-bold text-blue-400 block mb-1">N - Node.js Runtime</span>
-              <p className="text-slate-300">High-concurrency event-driven asynchronous runtime.</p>
-            </div>
+        <GlassCard padding="p-0" className="border-white/10 overflow-hidden">
+          <div className="p-6 border-b border-white/10 bg-white/[0.02]">
+            <h3 className="text-base font-bold text-white flex items-center gap-2"><ShieldCheck size={18} className="text-emerald-400" /> UX Laws & Human Factors</h3>
+            <p className="text-xs text-slate-400 mt-0.5">How the interface applies each design heuristic</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-white/10 bg-white/[0.01] text-xs uppercase tracking-wider text-slate-400">
+                  <th className="px-6 py-3.5 font-semibold">Heuristic</th>
+                  <th className="px-6 py-3.5 font-semibold">Principle</th>
+                  <th className="px-6 py-3.5 font-semibold">Implementation</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.03]">
+                {uxLawsData.map((law) => (
+                  <tr key={law.name} className="hover:bg-white/[0.02] transition-colors">
+                    <td className="px-6 py-4 font-bold text-white whitespace-nowrap">{law.name}</td>
+                    <td className="px-6 py-4 text-xs text-slate-400 max-w-xs">{law.concept}</td>
+                    <td className="px-6 py-4 text-xs text-slate-300 max-w-sm">{law.implementation}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </GlassCard>
       </div>
-
-      {/* Modal Demonstration */}
-      <Modal
-        isOpen={modalDemoOpen}
-        onClose={() => setModalDemoOpen(false)}
-        title="Example Modal: Destructive Action Confirmation"
-        size="md"
-      >
-        <p className="text-sm text-slate-300 mb-6">
-          This Modal exemplifies focused, high-attention tasks. Background interactions are disabled until you either confirm or cancel.
-        </p>
-        <div className="flex gap-3">
-          <button onClick={() => setModalDemoOpen(false)} className="btn-ghost flex-1 justify-center py-2.5 text-sm">
-            Close Modal
-          </button>
-          <button
-            onClick={() => {
-              addToast({ type: 'success', title: 'Confirmed', message: 'Modal confirmed successfully.' });
-              setModalDemoOpen(false);
-            }}
-            className="btn-danger flex-1 justify-center py-2.5 text-sm"
-          >
-            Confirm Action
-          </button>
-        </div>
-      </Modal>
-
-      {/* Sheet Demonstration */}
-      <Sheet
-        isOpen={sheetDemoOpen}
-        onClose={() => setSheetDemoOpen(false)}
-        title="Example Sheet: Multi-Field Inspector Panel"
-      >
-        <div className="space-y-4 text-sm text-slate-300">
-          <p>
-            This slide-out Sheet demonstrates side-pane workflows suitable for rich data entry, comprehensive settings, or viewing complex documents without losing page context.
-          </p>
-          <div className="p-4 rounded-xl bg-white/[0.03] border border-white/5 space-y-2">
-            <span className="text-xs font-bold text-white block">Persistent Working State</span>
-            <p className="text-xs text-slate-400">
-              Users can inspect information, fill in multi-step inputs, and easily dismiss or save.
-            </p>
-          </div>
-          <button
-            onClick={() => {
-              addToast({ type: 'success', title: 'Sheet Action', message: 'Sheet changes saved.' });
-              setSheetDemoOpen(false);
-            }}
-            className="btn-primary w-full justify-center py-3 text-sm font-bold shadow-lg shadow-blue-600/30"
-          >
-            Save Sheet Inputs
-          </button>
-        </div>
-      </Sheet>
     </div>
   );
 };
 
 export default SettingsPage;
-

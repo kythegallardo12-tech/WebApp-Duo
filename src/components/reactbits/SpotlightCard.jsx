@@ -11,6 +11,7 @@ const SpotlightCard = ({
   spotlightColor = 'rgba(59, 130, 246, 0.15)',
   borderColor = 'rgba(255, 255, 255, 0.1)',
   onClick,
+  ...rest
 }) => {
   const divRef = useRef(null);
   const [isFocused, setIsFocused] = useState(false);
@@ -44,6 +45,7 @@ const SpotlightCard = ({
 
   return (
     <div
+      {...rest}
       ref={divRef}
       onMouseMove={handleMouseMove}
       onFocus={handleFocus}

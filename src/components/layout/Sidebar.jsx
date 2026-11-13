@@ -35,7 +35,10 @@ const navItems = [
 const Sidebar = () => {
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
+  const mobileNavOpen = useStore((s) => s.mobileNavOpen);
   const location = useLocation();
+  // On small screens the drawer always shows labels.
+  const expanded = sidebarOpen || mobileNavOpen;
   const navRef = useRef(null);
   const logoRef = useRef(null);
 
@@ -59,16 +62,17 @@ const Sidebar = () => {
 
   return (
     <aside
-      className={`fixed left-0 top-0 h-screen bg-[var(--color-bg-secondary)]/80 backdrop-blur-xl border-r border-white/5 z-40 flex flex-col transition-all duration-300 ${
-        sidebarOpen ? 'w-64' : 'w-20'
-      }`}
+      aria-label="Main navigation"
+      className={`fixed left-0 top-0 h-screen bg-[var(--color-bg-secondary)]/95 lg:bg-[var(--color-bg-secondary)]/80 backdrop-blur-xl border-r border-white/5 z-40 flex flex-col transition-all duration-300 ${
+        expanded ? 'w-64' : 'w-20'
+      } ${mobileNavOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}
     >
       {/* Logo */}
       <div ref={logoRef} className="flex items-center gap-3 px-5 h-16 border-b border-white/5">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/20">
           <Boxes size={22} className="text-white" />
         </div>
-        {sidebarOpen && (
+        {expanded && (
           <div className="overflow-hidden">
             <h1 className="text-base font-bold text-[var(--color-text-primary)] whitespace-nowrap">
               StockFlow
@@ -90,6 +94,8 @@ const Sidebar = () => {
             <NavLink
               key={item.path}
               to={item.path}
+              aria-label={item.label}
+              aria-current={isActive ? 'page' : undefined}
               className={`nav-item flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group relative ${
                 isActive
                   ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
@@ -107,12 +113,12 @@ const Sidebar = () => {
                   isActive ? 'text-[var(--color-accent)]' : 'group-hover:text-[var(--color-text-primary)]'
                 }`}
               />
-              {sidebarOpen && (
+              {expanded && (
                 <span className="text-sm font-medium whitespace-nowrap">{item.label}</span>
               )}
 
               {/* Tooltip for collapsed state */}
-              {!sidebarOpen && (
+              {!expanded && (
                 <div className="absolute left-full ml-3 px-3 py-1.5 rounded-lg bg-[var(--color-bg-tertiary)] text-sm text-[var(--color-text-primary)] whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity shadow-lg border border-white/10 z-50">
                   {item.label}
                 </div>
@@ -123,7 +129,7 @@ const Sidebar = () => {
       </nav>
 
       {/* Collapse toggle */}
-      <div className="px-3 pb-4">
+      <div className="px-3 pb-4 hidden lg:block">
         <button
           onClick={toggleSidebar}
           className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-white/5 transition-all"

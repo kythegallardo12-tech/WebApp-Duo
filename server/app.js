@@ -88,7 +88,7 @@ export function createApp(overrides = {}) {
   );
   app.use('/api', loadUser(ttlMs));
   app.use('/api', csrfProtection);
-  app.use('/api/auth', authRoutes({ ttlMs, loginLimit: config.loginRateLimit }));
+  app.use('/api/auth', authRoutes({ ttlMs, loginLimit: config.loginRateLimit, allowDevReset: config.allowDevReset }));
   app.use('/api', apiRoutes({ allowDevReset: config.allowDevReset }));
   app.use('/api', notFoundHandler);
 

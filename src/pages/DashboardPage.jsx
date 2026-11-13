@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import {
   DollarSign,
   ShoppingCart,
@@ -6,7 +6,6 @@ import {
   Users,
   TrendingUp,
   TrendingDown,
-  ArrowRight,
   Sparkles,
   Layers,
   ShieldCheck,
@@ -19,8 +18,7 @@ import ShinyText from '../components/reactbits/ShinyText';
 import SmartLoadingWrapper from '../components/ui/SmartLoadingWrapper';
 import Header from '../components/layout/Header';
 import { useSmartLoader } from '../hooks/useSmartLoader';
-import { simulateApiWithProgress } from '../utils/mockApi';
-import { dashboardStats, revenueData, topProducts } from '../data/mockData';
+import { api } from '../api/client';
 import useStore from '../store/useStore';
 
 /**
@@ -40,7 +38,7 @@ const StatCard = ({ icon: Icon, label, value, growth, prefix = '', delay = 0, is
 
   useEffect(() => {
     if (valueRef.current) {
-      const numValue = parseFloat(value.toString().replace(/[^0-9.]/g, ''));
+      const numValue = Number(value) || 0;
       const obj = { val: 0 };
       gsap.to(obj, {
         val: numValue,
@@ -49,7 +47,10 @@ const StatCard = ({ icon: Icon, label, value, growth, prefix = '', delay = 0, is
         ease: 'power2.out',
         onUpdate: () => {
           if (valueRef.current) {
-            if (numValue >= 1000) {
+            if (prefix === '$') {
+              valueRef.current.textContent =
+                prefix + obj.val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            } else if (numValue >= 1000) {
               valueRef.current.textContent =
                 prefix +
                 obj.val.toLocaleString('en-US', {
@@ -89,7 +90,7 @@ const StatCard = ({ icon: Icon, label, value, growth, prefix = '', delay = 0, is
         <span className={`text-xs font-semibold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
           {isPositive ? '+' : ''}{growth}%
         </span>
-        <span className="text-[11px] text-[var(--color-text-muted)]">vs last cycle</span>
+        <span className="text-[11px] text-[var(--color-text-muted)]">vs previous 30 days</span>
       </div>
     </div>
   );
@@ -111,7 +112,8 @@ const StatCard = ({ icon: Icon, label, value, growth, prefix = '', delay = 0, is
 
 const RevenueChart = ({ data }) => {
   const barsRef = useRef(null);
-  const maxRevenue = Math.max(...data.map((d) => d.revenue));
+  const maxRevenue = Math.max(1, ...data.map((d) => d.revenue));
+  const peak = data.reduce((best, d) => (d.revenue > (best?.revenue ?? -1) ? d : best), null);
 
   useEffect(() => {
     if (barsRef.current) {
@@ -138,14 +140,16 @@ const RevenueChart = ({ data }) => {
           <div className="flex items-center gap-2">
             <h3 className="text-base font-bold text-white">Revenue Performance Trajectory</h3>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-semibold border border-blue-500/30">
-              Live MERN Telemetry
+              From MongoDB
             </span>
           </div>
-          <p className="text-xs text-[var(--color-text-muted)] mt-1">Real-time enterprise billing aggregation</p>
+          <p className="text-xs text-[var(--color-text-muted)] mt-1">Revenue from non-cancelled orders, last 6 months</p>
         </div>
         <div className="text-right">
-          <span className="text-xs text-[var(--color-text-muted)] block">Peak Period</span>
-          <span className="text-sm font-bold text-emerald-400">$45,200.00</span>
+          <span className="text-xs text-[var(--color-text-muted)] block">Peak Month</span>
+          <span className="text-sm font-bold text-emerald-400">
+            {peak && peak.revenue > 0 ? `${peak.month} · $${peak.revenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : 'No sales yet'}
+          </span>
         </div>
       </div>
 
@@ -154,7 +158,7 @@ const RevenueChart = ({ data }) => {
           const height = Math.round((item.revenue / maxRevenue) * 100);
           const isHighest = idx === data.length - 1;
           return (
-            <div key={item.month} className="flex-1 flex flex-col items-center gap-2 h-full justify-end">
+            <div key={`${item.year}-${item.month}`} className="flex-1 flex flex-col items-center gap-2 h-full justify-end">
               <span className="text-[10px] font-medium text-slate-400">
                 ${(item.revenue / 1000).toFixed(1)}k
               </span>
@@ -165,7 +169,7 @@ const RevenueChart = ({ data }) => {
                       ? 'bg-gradient-to-t from-blue-700 via-blue-500 to-cyan-300 shadow-lg shadow-blue-500/30'
                       : 'bg-gradient-to-t from-slate-800 via-blue-900 to-blue-600/70'
                   }`}
-                  style={{ height: `${height}%`, transformOrigin: 'bottom' }}
+                  style={{ height: `${Math.max(item.revenue > 0 ? 4 : 0, height)}%`, transformOrigin: 'bottom' }}
                 />
               </div>
               <span className={`text-[11px] font-medium ${isHighest ? 'text-blue-300 font-bold' : 'text-slate-400'}`}>
@@ -210,191 +214,140 @@ const UXPrinciplesShowcase = () => {
   );
 };
 
+const statusColor = {
+  delivered: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30',
+  shipped: 'bg-purple-500/15 text-purple-400 border border-purple-500/30',
+  processing: 'bg-blue-500/15 text-blue-400 border border-blue-500/30',
+  cancelled: 'bg-slate-500/15 text-slate-400 border border-slate-500/30',
+  pending: 'bg-amber-500/15 text-amber-400 border border-amber-500/30',
+};
+
 const DashboardPage = () => {
-  const orders = useStore((s) => s.orders);
+  const dataVersion = useStore((s) => s.dataVersion);
+  const settings = useStore((s) => s.settings);
+  const fetchDashboard = useCallback((onProgress, signal) => api.dashboard({ signal }), []);
+  const { data, loadingState, progress, timeLeft, error, refetch, refreshing } = useSmartLoader(fetchDashboard, [dataVersion]);
 
-  const fetchDashboard = useCallback(
-    (onProgress) => simulateApiWithProgress(dashboardStats, onProgress),
-    []
-  );
-
-  const { data, loadingState, progress, timeLeft, refetch } = useSmartLoader(fetchDashboard, []);
+  const top = data?.topProducts || [];
+  const maxSales = Math.max(1, ...top.map((p) => p.sales));
 
   return (
     <div>
-      <Header
-        title="Enterprise Overview"
-        subtitle="MERN Stack eCommerce & Inventory Management Control System"
-      />
+      <Header title="Overview" subtitle={`${settings?.businessName || 'StockFlow Pro'} · inventory and order management`} />
 
-      <div className="p-6 space-y-6">
-        {/* Banner with React Bits shiny text */}
+      <div className="p-4 sm:p-6 space-y-6">
         <div className="relative overflow-hidden rounded-2xl border border-blue-500/20 bg-gradient-to-r from-blue-950/60 via-slate-900/80 to-blue-900/40 p-6 backdrop-blur-xl">
           <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-xs uppercase tracking-widest font-bold text-blue-400">
-                  System Active & Operational
-                </span>
+                <span className={`w-2.5 h-2.5 rounded-full ${error ? 'bg-rose-400' : 'bg-emerald-400 animate-pulse'}`} />
+                <span className="text-xs uppercase tracking-widest font-bold text-blue-400">{error ? 'Connection problem' : 'Connected to database'}</span>
               </div>
-              <h2 className="text-2xl font-black text-white flex items-center gap-2">
-                StockFlow <ShinyText text="Enterprise Suite 2026" speed={4} />
+              <h2 className="text-2xl font-black text-white flex items-center gap-2 flex-wrap">
+                StockFlow <ShinyText text="Workspace" speed={4} />
               </h2>
               <p className="text-sm text-slate-300 max-w-2xl mt-1">
-                Optimistic zero-latency mutation architecture: Tap creates immediate local visual confirmation, background synchronizer guarantees persistence without blocking UI flow.
+                Every figure below is calculated by the server from orders and products stored in MongoDB.
+                {data?.generatedAt && ` Updated ${new Date(data.generatedAt).toLocaleTimeString()}.`}
               </p>
             </div>
-
-            <div className="flex items-center gap-3">
-              <button
-                onClick={refetch}
-                className="btn-primary text-xs px-4 py-2.5 shadow-lg shadow-blue-600/30 font-semibold"
-              >
-                Simulate Reload
-              </button>
-            </div>
+            <button onClick={refetch} disabled={refreshing} className="btn-primary text-xs px-4 py-2.5 shadow-lg shadow-blue-600/30 font-semibold disabled:opacity-60">
+              {refreshing ? 'Refreshing…' : 'Refresh'}
+            </button>
           </div>
         </div>
 
-        {/* Loading wrapper applying: under 1s = nothing, 1-10s = skeleton, >10s = progress+time left */}
-        <SmartLoadingWrapper
-          loadingState={loadingState}
-          progress={progress}
-          timeLeft={timeLeft}
-          skeletonType="stats"
-          skeletonCount={4}
-          message="Aggregating enterprise telemetry across nodes..."
-        >
-          {/* Stats Grid — Miller's Law: 4 core chunks */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard
-              icon={DollarSign}
-              label="Gross Revenue"
-              value={dashboardStats.totalRevenue}
-              growth={dashboardStats.revenueGrowth}
-              prefix="$"
-              delay={0}
-              isSpotlight={true}
-            />
-            <StatCard
-              icon={ShoppingCart}
-              label="Total Orders"
-              value={dashboardStats.totalOrders}
-              growth={dashboardStats.orderGrowth}
-              delay={0.08}
-            />
-            <StatCard
-              icon={Package}
-              label="SKU Catalog"
-              value={dashboardStats.totalProducts}
-              growth={dashboardStats.productGrowth}
-              delay={0.16}
-            />
-            <StatCard
-              icon={Users}
-              label="Active Accounts"
-              value={dashboardStats.totalCustomers}
-              growth={dashboardStats.customerGrowth}
-              delay={0.24}
-            />
-          </div>
-        </SmartLoadingWrapper>
-
-        {/* UX Principles Summary Ribbon */}
-        <UXPrinciplesShowcase />
-
-        {/* Charts & Analytics */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            <RevenueChart data={revenueData} />
-          </div>
-
-          <GlassCard delay={0.3} className="border-white/10">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-sm font-bold text-white">Top Sales Velocity</h3>
-                <p className="text-xs text-[var(--color-text-muted)]">Peak-End volume leaders</p>
+        <SmartLoadingWrapper loadingState={loadingState} progress={progress} timeLeft={timeLeft} error={error} onRetry={refetch} skeletonType="stats" skeletonCount={4} message="Calculating dashboard figures…">
+          {data && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="dashboard-stats">
+                <StatCard icon={DollarSign} label="Gross Revenue" value={data.totals.revenue} growth={data.growth.revenue} prefix="$" delay={0} isSpotlight />
+                <StatCard icon={ShoppingCart} label="Total Orders" value={data.totals.orders} growth={data.growth.orders} delay={0.08} />
+                <StatCard icon={Package} label="Products" value={data.totals.products} growth={0} delay={0.16} />
+                <StatCard icon={Users} label="Customers" value={data.totals.customers} growth={data.growth.customers} delay={0.24} />
               </div>
-              <span className="text-[10px] text-blue-400 uppercase tracking-wider font-semibold">SKU Units</span>
-            </div>
 
-            <div className="space-y-4">
-              {topProducts.map((p, idx) => {
-                const max = topProducts[0].sales;
-                const pct = Math.round((p.sales / max) * 100);
-                return (
-                  <div key={p.name} className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-300 font-medium truncate max-w-[170px]">{p.name}</span>
-                      <span className="text-white font-bold">{p.sales.toLocaleString()}</span>
-                    </div>
-                    <div className="w-full bg-white/5 rounded-full h-2 overflow-hidden">
-                      <div
-                        className="bg-gradient-to-r from-blue-500 to-cyan-400 h-full rounded-full transition-all duration-700"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  ['Inventory value (cost)', `$${data.inventory.value.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 'text-white'],
+                  ['Healthy stock', data.inventory.healthy, 'text-emerald-400'],
+                  ['Low stock', data.inventory.low, 'text-amber-400'],
+                  ['Out of stock', data.inventory.out, 'text-rose-400'],
+                ].map(([label, value, color]) => (
+                  <div key={label} className="p-4 rounded-xl bg-white/[0.03] border border-white/5">
+                    <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">{label}</span>
+                    <span className={`text-xl font-black ${color}`}>{value}</span>
                   </div>
-                );
-              })}
-            </div>
-          </GlassCard>
-        </div>
-
-        {/* Recent Activity Table */}
-        <GlassCard delay={0.4} className="border-white/10">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-base font-bold text-white">Recent Transactions Log</h3>
-              <p className="text-xs text-[var(--color-text-muted)]">Real-time order pipeline with instant sync state</p>
-            </div>
-            <span className="text-xs font-semibold text-blue-400 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/20">
-              {orders.length} Synced Records
-            </span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-white/5 text-xs text-[var(--color-text-muted)]">
-                  <th className="pb-3 font-semibold">Order ID</th>
-                  <th className="pb-3 font-semibold">Customer</th>
-                  <th className="pb-3 font-semibold">Date</th>
-                  <th className="pb-3 font-semibold">Amount</th>
-                  <th className="pb-3 font-semibold">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.03]">
-                {orders.slice(0, 5).map((ord) => (
-                  <tr key={ord.id} className="hover:bg-white/[0.02] transition-colors">
-                    <td className="py-3 font-mono text-xs text-blue-300">{ord.id}</td>
-                    <td className="py-3 font-medium text-white">{ord.customer}</td>
-                    <td className="py-3 text-xs text-slate-400">{ord.date}</td>
-                    <td className="py-3 font-bold text-white">${ord.total.toFixed(2)}</td>
-                    <td className="py-3">
-                      <span
-                        className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${
-                          ord.status === 'delivered'
-                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                            : ord.status === 'shipped'
-                            ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
-                            : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                        }`}
-                      >
-                        {ord.status}
-                      </span>
-                    </td>
-                  </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </GlassCard>
+              </div>
+
+              <UXPrinciplesShowcase />
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2">
+                  <RevenueChart data={data.revenueByMonth} />
+                </div>
+                <GlassCard delay={0.3} className="border-white/10">
+                  <div className="mb-4">
+                    <h3 className="text-sm font-bold text-white">Top Sellers</h3>
+                    <p className="text-xs text-[var(--color-text-muted)]">Units ordered (excluding cancelled)</p>
+                  </div>
+                  <div className="space-y-4">
+                    {top.length === 0 && <p className="text-xs text-slate-400">No orders yet.</p>}
+                    {top.map((p) => (
+                      <div key={p.name} className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-300 font-medium truncate max-w-[170px]">{p.name}</span>
+                          <span className="text-white font-bold">{p.sales.toLocaleString()}</span>
+                        </div>
+                        <div className="w-full bg-white/5 rounded-full h-2 overflow-hidden">
+                          <div className="bg-gradient-to-r from-blue-500 to-cyan-400 h-full rounded-full transition-all duration-700" style={{ width: `${Math.round((p.sales / maxSales) * 100)}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </GlassCard>
+              </div>
+
+              <GlassCard delay={0.4} className="border-white/10">
+                <div className="mb-4">
+                  <h3 className="text-base font-bold text-white">Recent Orders</h3>
+                  <p className="text-xs text-[var(--color-text-muted)]">Latest five orders</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-white/5 text-xs text-[var(--color-text-muted)]">
+                        <th className="pb-3 font-semibold">Order</th>
+                        <th className="pb-3 font-semibold">Customer</th>
+                        <th className="pb-3 font-semibold">Date</th>
+                        <th className="pb-3 font-semibold">Amount</th>
+                        <th className="pb-3 font-semibold">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/[0.03]">
+                      {data.recentOrders.map((ord) => (
+                        <tr key={ord.id} className="hover:bg-white/[0.02] transition-colors">
+                          <td className="py-3 font-mono text-xs text-blue-300">{ord.orderNumber}</td>
+                          <td className="py-3 font-medium text-white">{ord.customer}</td>
+                          <td className="py-3 text-xs text-slate-400">{new Date(ord.date).toLocaleDateString()}</td>
+                          <td className="py-3 font-bold text-white">${ord.total.toFixed(2)}</td>
+                          <td className="py-3">
+                            <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${statusColor[ord.status] || statusColor.pending}`}>{ord.status}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {data.recentOrders.length === 0 && <p className="text-sm text-slate-400 py-6 text-center">No orders yet.</p>}
+                </div>
+              </GlassCard>
+            </div>
+          )}
+        </SmartLoadingWrapper>
       </div>
     </div>
   );
 };
 
 export default DashboardPage;
-
