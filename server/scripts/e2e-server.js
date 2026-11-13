@@ -52,12 +52,26 @@ const app = createApp({
   serveClient: true,
   corsOrigins: [],
   trustProxy: '',
+  extraRoutes: (app) => {
+    app.post('/__e2e/reset', async (req, res) => {
+      await reset();
+      res.json({ ok: true });
+    });
+    // Redacted collection overview for documentation screenshots (no hashes, no session contents).
+    app.get('/__e2e/collections', async (req, res) => {
+      const cols = await mongoose.connection.db.listCollections().toArray();
+      const out = [];
+      for (const { name } of cols.sort((a, b) => a.name.localeCompare(b.name))) {
+        const col = mongoose.connection.db.collection(name);
+        const count = await col.countDocuments();
+        let sample = await col.find({}, { projection: { passwordHash: 0, session: 0 } }).sort({ _id: -1 }).limit(1).next();
+        if (name === 'sessions') sample = sample ? { _id: '[redacted]', expires: sample.expires } : null;
+        out.push({ name, count, sample });
+      }
+      res.json(out);
+    });
+  },
 });
-app.post('/__e2e/reset', async (req, res) => {
-  await reset();
-  res.json({ ok: true });
-});
-
 const server = app.listen(port, () => console.log(`E2E server on http://localhost:${port}`));
 const stop = async () => {
   server.close();

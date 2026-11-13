@@ -67,7 +67,7 @@ const SavingBadge = () => (
 );
 
 const ProductCard = ({ product, pending, canDelete, onEdit, onDelete, onView }) => (
-  <SpotlightCard className="p-0 overflow-hidden group flex flex-col justify-between" data-testid="product-card">
+  <SpotlightCard className="p-0! overflow-hidden group flex flex-col justify-between" data-testid="product-card">
     <div>
       <div className="relative h-44 bg-gradient-to-br from-blue-950/60 via-slate-900 to-slate-950 flex items-center justify-center overflow-hidden border-b border-white/5">
         <ProductImage product={product} />
@@ -99,7 +99,7 @@ const ProductCard = ({ product, pending, canDelete, onEdit, onDelete, onView }) 
       <div className="p-5">
         <h3 className="text-sm font-bold text-white group-hover:text-blue-300 transition-colors line-clamp-1">{product.name}</h3>
         <p className="font-mono text-[11px] text-blue-400/70 mb-3">{product.sku}</p>
-        <p className="text-xs text-slate-400">{product.sales ?? 0} units ordered</p>
+        <p className="text-xs text-slate-400">{product.sales ?? 0} {(product.sales ?? 0) === 1 ? 'unit' : 'units'} ordered</p>
       </div>
     </div>
 
@@ -341,7 +341,7 @@ const ProductsPage = () => {
         <div className="flex flex-col xl:flex-row gap-3 xl:items-center justify-between">
           <div className="flex flex-1 flex-col sm:flex-row flex-wrap gap-3">
             <div className="relative flex-1 min-w-[200px] max-w-md">
-              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 z-10 pointer-events-none text-slate-400" aria-hidden="true" />
               <input
                 type="search"
                 aria-label="Search products"

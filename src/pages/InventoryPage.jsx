@@ -154,7 +154,7 @@ const InventoryPage = () => {
 
         <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
           <div className="relative flex-1 max-w-md">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 z-10 pointer-events-none text-slate-400" aria-hidden="true" />
             <input type="search" aria-label="Search inventory" placeholder="Search inventory by title or SKU..." value={search} onChange={(e) => setSearch(e.target.value)} className="glass-input pl-10 text-sm h-11" />
           </div>
           <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="Stock filter">

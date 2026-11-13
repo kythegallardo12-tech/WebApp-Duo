@@ -92,6 +92,9 @@ export function createApp(overrides = {}) {
   app.use('/api', apiRoutes({ allowDevReset: config.allowDevReset }));
   app.use('/api', notFoundHandler);
 
+  // Hook for test harnesses (e2e fixtures) to add routes before the SPA fallback.
+  overrides.extraRoutes?.(app);
+
   // Production: serve the built React app from the same origin as the API.
   const dist = path.resolve(here, '../dist');
   if (config.serveClient && fs.existsSync(path.join(dist, 'index.html'))) {

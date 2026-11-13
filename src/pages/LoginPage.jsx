@@ -80,7 +80,7 @@ const LoginPage = () => {
                 Email
               </label>
               <div className="relative">
-                <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" />
+                <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 z-10 pointer-events-none text-slate-500" aria-hidden="true" />
                 <input
                   id="login-email"
                   type="email"
@@ -99,7 +99,7 @@ const LoginPage = () => {
                 Password
               </label>
               <div className="relative">
-                <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" />
+                <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 z-10 pointer-events-none text-slate-500" aria-hidden="true" />
                 <input
                   id="login-password"
                   type="password"
