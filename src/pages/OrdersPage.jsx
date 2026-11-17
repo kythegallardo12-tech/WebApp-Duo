@@ -1,3 +1,4 @@
+import { useCurrency } from '../hooks/useCurrency';
 import { useState, useCallback, useMemo } from 'react';
 import { Plus, Search, Clock, Truck, PackageCheck, AlertCircle, Eye, XCircle, ChevronRight, User, MapPin, Calendar, Trash2, Ban } from 'lucide-react';
 import GlassCard from '../components/ui/GlassCard';
@@ -27,11 +28,11 @@ const statusConfig = {
   cancelled: { label: 'Cancelled', color: 'bg-slate-500/15 text-slate-400 border-slate-500/30', next: null, icon: Ban },
 };
 const CANCELLABLE = ['pending', 'processing'];
-const money = (n) => `$${Number(n || 0).toFixed(2)}`;
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '');
 const emptyForm = () => ({ customer: '', email: '', address: '', lines: [{ productId: '', qty: 1 }] });
 
 const OrdersPage = () => {
+  const { money } = useCurrency();
   const orders = useStore((s) => s.orders);
   const products = useStore((s) => s.products);
   const pending = useStore((s) => s.pending);

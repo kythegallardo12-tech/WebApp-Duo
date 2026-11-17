@@ -138,14 +138,11 @@ export async function cancelOrder(session, { orderId, actorId, reason }) {
       const product = await Product.findById(item.product).session(session).lean();
       // Stock for soft-deleted products is still restored so the ledger stays consistent.
       if (!product) continue;
-      if (product.deleted) {
-        await Product.updateOne({ _id: item.product }, { $inc: { stock: item.qty } }, { session });
-        continue;
-      }
       await applyStockDelta(session, {
         productId: item.product,
         delta: item.qty,
         type: 'cancel',
+        allowDeleted: true,
         reason: reason ? `Cancelled ${order.orderNumber}: ${reason}` : `Cancelled ${order.orderNumber}`,
         orderId: order._id,
         actorId,

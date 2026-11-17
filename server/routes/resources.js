@@ -290,7 +290,9 @@ export function apiRoutes({ allowDevReset }) {
     for (const k of ['name', 'role', 'active']) if (d[k] !== undefined) set[k] = d[k];
     if (d.password) set.passwordHash = await bcrypt.hash(d.password, 12);
     if (!Object.keys(set).length) throw badRequest('Nothing to update.');
-    const user = await User.findByIdAndUpdate(req.params.id, { $set: set }, { new: true }).lean();
+    const update = { $set: set };
+    if (d.password || d.active === false) update.$inc = { authVersion: 1 };
+    const user = await User.findByIdAndUpdate(req.params.id, update, { new: true }).lean();
     if (!user) throw notFound('User');
     res.json({ user: serializeUser(user) });
   });

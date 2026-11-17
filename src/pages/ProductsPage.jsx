@@ -1,3 +1,4 @@
+import { useCurrency } from '../hooks/useCurrency';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Plus,
@@ -35,7 +36,6 @@ import useAuth from '../store/useAuth';
  */
 
 const PAGE_SIZE = 12;
-const money = (n) => `$${Number(n || 0).toFixed(2)}`;
 
 const statusBadge = {
   active: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30',
@@ -66,7 +66,9 @@ const SavingBadge = () => (
   </span>
 );
 
-const ProductCard = ({ product, pending, canDelete, onEdit, onDelete, onView }) => (
+const ProductCard = ({ product, pending, canDelete, onEdit, onDelete, onView }) => {
+  const { money } = useCurrency();
+  return (
   <SpotlightCard className="p-0! overflow-hidden group flex flex-col justify-between" data-testid="product-card">
     <div>
       <div className="relative h-44 bg-gradient-to-br from-blue-950/60 via-slate-900 to-slate-950 flex items-center justify-center overflow-hidden border-b border-white/5">
@@ -115,6 +117,7 @@ const ProductCard = ({ product, pending, canDelete, onEdit, onDelete, onView }) 
     </div>
   </SpotlightCard>
 );
+};
 
 const Field = ({ id, label, error, children, hint }) => (
   <div>
@@ -132,6 +135,7 @@ const Field = ({ id, label, error, children, hint }) => (
 );
 
 const ProductForm = ({ product, initial, fieldErrors = {}, onSave, onClose }) => {
+  const { symbol } = useCurrency();
   const categories = useStore((s) => s.categories);
   const settings = useStore((s) => s.settings);
   const isEdit = !!product;
@@ -211,10 +215,10 @@ const ProductForm = ({ product, initial, fieldErrors = {}, onSave, onClose }) =>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field id="price" label="Selling Price ($)" error={errors.price}>
+        <Field id="price" label={`Selling Price (${symbol})`} error={errors.price}>
           <input {...input('price')} type="number" step="0.01" min="0" inputMode="decimal" value={form.price} onChange={(e) => set('price', e.target.value)} className="glass-input text-sm font-bold text-emerald-400" placeholder="0.00" />
         </Field>
-        <Field id="cost" label="Unit Cost ($)" error={errors.cost}>
+        <Field id="cost" label={`Unit Cost (${symbol})`} error={errors.cost}>
           <input {...input('cost')} type="number" step="0.01" min="0" inputMode="decimal" value={form.cost} onChange={(e) => set('cost', e.target.value)} className="glass-input text-sm" placeholder="0.00" />
         </Field>
       </div>
@@ -257,6 +261,7 @@ const ProductForm = ({ product, initial, fieldErrors = {}, onSave, onClose }) =>
 };
 
 const ProductsPage = () => {
+  const { money } = useCurrency();
   const storeProducts = useStore((s) => s.products);
   const categories = useStore((s) => s.categories);
   const pending = useStore((s) => s.pending);
@@ -283,12 +288,13 @@ const ProductsPage = () => {
   const [deleteModal, setDeleteModal] = useState(null);
 
   useEffect(() => {
+    if (searchInput.trim() === search) return undefined;
     const t = setTimeout(() => {
       setSearch(searchInput.trim());
       setPage(1);
     }, 300);
     return () => clearTimeout(t);
-  }, [searchInput]);
+  }, [searchInput, search]);
 
   const params = useMemo(
     () => ({ q: search || undefined, category: categoryFilter, status: statusFilter, sort, page, limit: PAGE_SIZE }),
@@ -303,7 +309,7 @@ const ProductsPage = () => {
     const local = new Map(storeProducts.map((p) => [p.id, p]));
     const rows = data.items
       .filter((p) => local.has(p.id) || !pending[p.id])
-      .map((p) => (local.has(p.id) ? { ...p, ...local.get(p.id), sales: p.sales } : p));
+      .map((p) => (pending[p.id] && local.has(p.id) ? { ...p, ...local.get(p.id), sales: p.sales } : p));
     const temps = page === 1 ? storeProducts.filter((p) => p.id.startsWith('tmp-')) : [];
     return [...temps, ...rows];
   }, [data, storeProducts, pending, page]);
@@ -314,7 +320,7 @@ const ProductsPage = () => {
   const handleSave = async (payload, rawForm) => {
     const current = sheet;
     setSheet(null); // optimistic: close at once, the item shows "Saving…"
-    const result = current.mode === 'edit' ? await updateProduct(current.product.id, payload) : await createProduct(payload);
+    const result = current.mode === 'edit' ? await updateProduct(current.product.id, payload, current.product) : await createProduct(payload);
     if (!result.ok && ['validation', 'conflict'].includes(result.error?.kind)) {
       // Re-open the form with what the user typed and the server's field errors.
       const fresh = current.mode === 'edit' ? useStore.getState().products.find((p) => p.id === current.product.id) : null;
@@ -327,7 +333,7 @@ const ProductsPage = () => {
   const handleDelete = () => {
     const product = deleteModal;
     setDeleteModal(null);
-    if (product) deleteProduct(product.id);
+    if (product) deleteProduct(product.id, product);
   };
 
   const exportHref = api.exportCsvUrl({ q: search || undefined, category: categoryFilter, status: statusFilter, sort });

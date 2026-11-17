@@ -1,3 +1,4 @@
+import { useCurrency } from '../hooks/useCurrency';
 import { useRef, useEffect, useCallback } from 'react';
 import {
   DollarSign,
@@ -33,6 +34,7 @@ import useStore from '../store/useStore';
  */
 
 const StatCard = ({ icon: Icon, label, value, growth, prefix = '', delay = 0, isSpotlight = false }) => {
+  const { money } = useCurrency();
   const valueRef = useRef(null);
   const isPositive = growth >= 0;
 
@@ -49,7 +51,7 @@ const StatCard = ({ icon: Icon, label, value, growth, prefix = '', delay = 0, is
           if (valueRef.current) {
             if (prefix === '$') {
               valueRef.current.textContent =
-                prefix + obj.val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                money(obj.val);
             } else if (numValue >= 1000) {
               valueRef.current.textContent =
                 prefix +
@@ -64,7 +66,7 @@ const StatCard = ({ icon: Icon, label, value, growth, prefix = '', delay = 0, is
         },
       });
     }
-  }, [value, prefix, delay]);
+  }, [value, prefix, delay, money]);
 
   const content = (
     <div className="relative">
@@ -111,6 +113,7 @@ const StatCard = ({ icon: Icon, label, value, growth, prefix = '', delay = 0, is
 };
 
 const RevenueChart = ({ data }) => {
+  const { money, compactMoney } = useCurrency();
   const barsRef = useRef(null);
   const maxRevenue = Math.max(1, ...data.map((d) => d.revenue));
   const peak = data.reduce((best, d) => (d.revenue > (best?.revenue ?? -1) ? d : best), null);
@@ -148,7 +151,7 @@ const RevenueChart = ({ data }) => {
         <div className="text-right">
           <span className="text-xs text-[var(--color-text-muted)] block">Peak Month</span>
           <span className="text-sm font-bold text-emerald-400">
-            {peak && peak.revenue > 0 ? `${peak.month} · $${peak.revenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : 'No sales yet'}
+            {peak && peak.revenue > 0 ? `${peak.month} · ${money(peak.revenue)}` : 'No sales yet'}
           </span>
         </div>
       </div>
@@ -160,7 +163,7 @@ const RevenueChart = ({ data }) => {
           return (
             <div key={`${item.year}-${item.month}`} className="flex-1 flex flex-col items-center gap-2 h-full justify-end">
               <span className="text-[10px] font-medium text-slate-400">
-                ${(item.revenue / 1000).toFixed(1)}k
+                {compactMoney(item.revenue)}
               </span>
               <div className="w-full bg-white/[0.04] rounded-xl relative overflow-hidden h-36 flex items-end">
                 <div
@@ -223,6 +226,7 @@ const statusColor = {
 };
 
 const DashboardPage = () => {
+  const { money } = useCurrency();
   const dataVersion = useStore((s) => s.dataVersion);
   const settings = useStore((s) => s.settings);
   const fetchDashboard = useCallback((onProgress, signal) => api.dashboard({ signal }), []);
@@ -269,7 +273,7 @@ const DashboardPage = () => {
 
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 {[
-                  ['Inventory value (cost)', `$${data.inventory.value.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 'text-white'],
+                  ['Inventory value (cost)', money(data.inventory.value), 'text-white'],
                   ['Healthy stock', data.inventory.healthy, 'text-emerald-400'],
                   ['Low stock', data.inventory.low, 'text-amber-400'],
                   ['Out of stock', data.inventory.out, 'text-rose-400'],
@@ -331,7 +335,7 @@ const DashboardPage = () => {
                           <td className="py-3 font-mono text-xs text-blue-300">{ord.orderNumber}</td>
                           <td className="py-3 font-medium text-white">{ord.customer}</td>
                           <td className="py-3 text-xs text-slate-400">{new Date(ord.date).toLocaleDateString()}</td>
-                          <td className="py-3 font-bold text-white">${ord.total.toFixed(2)}</td>
+                          <td className="py-3 font-bold text-white">{money(ord.total)}</td>
                           <td className="py-3">
                             <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${statusColor[ord.status] || statusColor.pending}`}>{ord.status}</span>
                           </td>

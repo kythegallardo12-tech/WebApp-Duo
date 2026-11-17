@@ -156,6 +156,7 @@ const BusinessSettings = ({ canEdit }) => {
               <div>
                 <label htmlFor="biz-currency" className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Currency code</label>
                 <input id="biz-currency" className="glass-input text-sm uppercase" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} maxLength={3} />
+                <p className="text-[11px] text-slate-500 mt-1">Changes the currency label across the workspace. Existing amounts are not converted.</p>
               </div>
               <div>
                 <label htmlFor="biz-min" className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Default low-stock threshold</label>

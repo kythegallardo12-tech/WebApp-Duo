@@ -132,7 +132,7 @@ This starts the API (`node --watch`, port 4000) and Vite (port 5173) together. O
 | `npm run dev` | API + Vite dev server together |
 | `npm run build` | Production build of the front end into `dist/` |
 | `npm start` | Production server: API and built front end on one origin (`PORT`) |
-| `npm test` | Backend test suite (`npm run test:api`) |
+| `npm test` | Backend and client-state regression tests (`test:api` + `test:unit`) |
 | `npm run test:e2e` | Playwright end-to-end tests (run `npm run build` first) |
 | `npm run test:all` | lint → backend tests → build → end-to-end tests |
 | `npm run lint` | oxlint |
@@ -142,7 +142,7 @@ This starts the API (`node --watch`, port 4000) and Vite (port 5173) together. O
 
 ## Testing
 
-**Backend (`npm test`).** 31 tests with `node:test` and supertest against a real single-node replica set started by `mongodb-memory-server` (the MongoDB binary is downloaded on first run). They never touch your development database. Coverage includes:
+**Backend (`npm test`).** Backend tests with `node:test` and supertest against a real single-node replica set started by `mongodb-memory-server` (the MongoDB binary is downloaded on first run). They never touch your development database. Coverage includes:
 
 - login, logout, session expiry, deactivated users, CSRF, rate limiting and protected routes;
 - the admin/staff permission matrix;
@@ -155,7 +155,7 @@ This starts the API (`node --watch`, port 4000) and Vite (port 5173) together. O
 - order history surviving product edits and deletion;
 - dashboard figures, repeatable seeding and legacy-data import.
 
-**End-to-end (`npm run build && npm run test:e2e`).** 18 Playwright tests (Chromium) against the production build and the real API. [`server/scripts/e2e-server.js`](server/scripts/e2e-server.js) starts its own in-memory replica set — or uses `E2E_MONGODB_URI`, which must name a database containing `test` or `e2e` — and resets fixed test fixtures before each test. They cover:
+**End-to-end (`npm run build && npm run test:e2e`).** Playwright tests (Chromium) against the production build and the real API. [`server/scripts/e2e-server.js`](server/scripts/e2e-server.js) starts its own in-memory replica set — or uses `E2E_MONGODB_URI`, which must name a database containing `test` or `e2e` — and resets fixed test fixtures before each test. They cover:
 
 - sign-in, sign-out, expired sessions and keyboard-only sign-in;
 - role-dependent UI;
@@ -244,7 +244,7 @@ All endpoints are under `/api` and return JSON. Errors look like `{ "error": { "
 ## Security
 
 - Passwords are hashed with bcrypt (cost 12). Hashes are never returned by the API.
-- Sessions are stored in MongoDB (`sessions` collection). The cookie `sf.sid` is `HttpOnly`, `SameSite=Lax`, and `Secure` in production. Sessions have an absolute lifetime (`SESSION_TTL_MINUTES`); the id is regenerated at login; logout destroys the session; deactivated users are signed out on their next request.
+- Sessions are stored in MongoDB (`sessions` collection). The cookie `sf.sid` is `HttpOnly`, `SameSite=Lax`, and `Secure` in production. Sessions have an absolute lifetime (`SESSION_TTL_MINUTES`); the id is regenerated at login; logout destroys the session; deactivated users and sessions issued before a password reset are signed out on their next request. Credential versions also prevent reactivating an account from reviving older sessions.
 - CSRF: a synchronizer token is stored in the session and must be sent as `X-CSRF-Token` on every mutation.
 - Login is rate limited per IP + email. Unknown emails and wrong passwords get the same response.
 - `helmet` security headers with a restrictive Content-Security-Policy. CORS is disabled unless `CORS_ORIGINS` is set.
@@ -281,15 +281,19 @@ This works on any Node host (Render, Railway, Fly.io, a VPS) with MongoDB Atlas.
 
 ## Known limitations
 
-- The inventory page, order form and optimistic overlays work from a full catalog load capped at 500 products. The Products page itself is paginated on the server and has no cap.
+- Inventory, order entry and shared lists fetch every API page rather than silently truncating at 500 products or 200 orders. These views still keep the complete lists in memory; very large catalogs should move to paginated inventory and an on-demand product picker. The Products page is paginated on the server.
 - Orders created by the API are numbered `ORD-YYYY-NNNN`; seeded and imported orders keep their old numbers (for example `ORD-2026-001`).
 - No password-reset email flow: admins reset passwords in **Settings → Team**, or with `npm run create-admin`.
 - A single shared workspace, without multi-tenant separation.
 - Customers are stored on each order rather than in their own collection, so there is no customer directory.
-- Currency is a display setting only: amounts are not converted, and the UI formats them with `$`.
+- Currency formatting follows the saved code throughout the workspace. Amounts are not converted; changing the currency relabels existing numeric amounts.
 - The Docker Compose replica set is for local development (no authentication, one node). Use Atlas or a secured replica set in production.
 - Playwright runs only in Chromium.
 
 ## License
 
 Academic project.
+
+## Client integrity regressions
+
+`npm run test:unit` exercises the production workspace store with controlled response timing: reversed stock commits, stale reads, list boundaries, cache-miss actions, failed page loads, and sign-out during requests. The browser suite also covers remote product edits, password-reset revocation, currency formatting and the low-stock alert preference. Successful stock mutations reconcile the last pending operation with server state; older authentication generations cannot repopulate the store or retry writes under a new session.

@@ -39,7 +39,7 @@ export function loadUser(ttlMs) {
       return sess.destroy(() => next(unauthorized('Your session has expired. Please sign in again.', 'SESSION_EXPIRED')));
     }
     const user = await User.findById(sess.userId).lean();
-    if (!user || !user.active) {
+    if (!user || !user.active || (sess.authVersion ?? 0) !== (user.authVersion ?? 0)) {
       return sess.destroy(() => next(unauthorized('Your account is no longer active.', 'SESSION_REVOKED')));
     }
     req.user = user;

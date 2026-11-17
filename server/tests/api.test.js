@@ -1,6 +1,7 @@
 import { test, describe, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import request from 'supertest';
+import { execFileSync } from 'node:child_process';
 import { startDb, stopDb, makeApp, resetData, login, key, PASSWORD } from './helpers.js';
 import { Order, Product, InventoryMovement, IdempotencyRecord } from '../models/index.js';
 
@@ -109,6 +110,40 @@ describe('authentication', () => {
     const res = await staff.get('/api/products');
     assert.equal(res.status, 401);
     assert.equal(res.body.error.code, 'SESSION_REVOKED');
+  });
+
+  test('resetting a password revokes every old session but permits a new sign-in', async () => {
+    const admin = await login(app);
+    const first = await login(app, 'staff@test.local');
+    const second = await login(app, 'staff@test.local');
+    const changed = await admin.patch(`/api/users/${first.user.id}`, { password: 'changed-password-for-test' });
+    assert.equal(changed.status, 200);
+    for (const old of [first, second]) {
+      assert.equal((await old.get('/api/products')).status, 401);
+      assert.equal((await old.post('/api/orders', {}, { 'Idempotency-Key': key() })).status, 401);
+    }
+    const fresh = await login(app, 'staff@test.local', 'changed-password-for-test');
+    assert.equal((await fresh.get('/api/products')).status, 200);
+    assert.equal((await admin.get('/api/products')).status, 200);
+  });
+
+  test('reactivating an account does not revive its old sessions', async () => {
+    const admin = await login(app), staff = await login(app, 'staff@test.local');
+    await admin.patch(`/api/users/${staff.user.id}`, { active: false });
+    await admin.patch(`/api/users/${staff.user.id}`, { active: true });
+    assert.equal((await staff.get('/api/products')).status, 401);
+  });
+
+  test('the create-admin password reset also revokes existing sessions', async () => {
+    const old = await login(app);
+    const password = 'reset-by-cli-fixture-password';
+    execFileSync(process.execPath, ['server/scripts/create-admin.js', '--email', 'admin@test.local', '--name', 'Test Admin'], {
+      env: { ...process.env, NODE_ENV: 'test', MONGODB_URI: replSet.getUri('stockflow_test'), ADMIN_PASSWORD: password },
+      timeout: 30000,
+    });
+    assert.equal((await old.get('/api/products')).status, 401);
+    const fresh = await login(app, 'admin@test.local', password);
+    assert.equal((await fresh.get('/api/products')).status, 200);
   });
 });
 
@@ -450,6 +485,23 @@ describe('orders', () => {
     assert.equal(again.total, 119.98);
     // Deleted product's SKU can be reused and cannot be ordered.
     assert.equal((await newOrder(c, [{ productId: p.id, qty: 1 }])).status, 409);
+  });
+
+  test('cancelling after soft deletion records the returned stock exactly once', async () => {
+    const c = await login(app);
+    const p = await productBySku('ELEC-WBH-001');
+    const order = (await newOrder(c, [{ productId: String(p._id), qty: 2 }])).body.order;
+    assert.equal((await c.del(`/api/products/${p._id}`)).status, 200);
+    const k = key();
+    for (let i = 0; i < 2; i++) assert.equal((await c.post(`/api/orders/${order.id}/cancel`, {}, { 'Idempotency-Key': k })).status, 200);
+    const restored = await Product.findById(p._id).lean();
+    assert.equal(restored.stock, p.stock);
+    assert.equal(restored.deleted, true);
+    const moves = await InventoryMovement.find({ order: order.id, type: 'cancel' }).lean();
+    assert.equal(moves.length, 1);
+    assert.equal(moves[0].delta, 2);
+    assert.equal(moves[0].stockAfter, p.stock);
+    assert.equal(String(moves[0].actor), c.user.id);
   });
 
   test('order validation', async () => {

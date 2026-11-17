@@ -33,8 +33,11 @@ export class ApiError extends Error {
 
 let csrfToken = null;
 let onUnauthorized = null;
+let sessionEpoch = 0;
+const superseded = () => Object.assign(new Error('The session changed while this request was running.'), { name: 'AbortError' });
 
 export const setCsrfToken = (t) => {
+  if (t !== csrfToken) sessionEpoch++;
   csrfToken = t;
 };
 export const setUnauthorizedHandler = (fn) => {
@@ -47,9 +50,12 @@ export const newIdempotencyKey = () =>
 const TIMEOUT_MS = 20000;
 
 export async function apiRequest(method, path, { body, headers = {}, idempotencyKey, signal, raw = false } = {}) {
+  const epoch = sessionEpoch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort('timeout'), TIMEOUT_MS);
-  if (signal) signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+  const abort = () => controller.abort(signal.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
 
   const h = { Accept: raw ? '*/*' : 'application/json', ...headers };
   if (body !== undefined) h['Content-Type'] = 'application/json';
@@ -66,6 +72,7 @@ export async function apiRequest(method, path, { body, headers = {}, idempotency
       signal: controller.signal,
     });
   } catch (err) {
+    if (epoch !== sessionEpoch) throw superseded();
     if (signal?.aborted) throw err;
     throw new ApiError({
       status: 0,
@@ -76,7 +83,10 @@ export async function apiRequest(method, path, { body, headers = {}, idempotency
     });
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
   }
+
+  if (epoch !== sessionEpoch) throw superseded();
 
   if (res.status === 204) return null;
   if (raw && res.ok) return res;
@@ -95,9 +105,11 @@ export async function apiRequest(method, path, { body, headers = {}, idempotency
       message: e.message || `Request failed (${res.status}).`,
       details: e.details,
     });
+    if (epoch !== sessionEpoch) throw superseded();
     if (error.kind === 'auth' && !path.startsWith('/auth/login')) onUnauthorized?.(error);
     throw error;
   }
+  if (epoch !== sessionEpoch) throw superseded();
   return data;
 }
 
@@ -107,8 +119,10 @@ export async function apiRequest(method, path, { body, headers = {}, idempotency
  * effect at most once even if the first attempt actually succeeded.
  */
 export async function withRetry(fn, { attempts = 3, baseDelay = 600 } = {}) {
+  const epoch = sessionEpoch;
   let lastErr;
   for (let i = 0; i < attempts; i++) {
+    if (epoch !== sessionEpoch) throw superseded();
     try {
       return await fn();
     } catch (err) {

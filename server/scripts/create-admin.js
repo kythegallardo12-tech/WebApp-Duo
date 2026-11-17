@@ -60,8 +60,10 @@ await connectDb(config.mongoUri);
 const passwordHash = await bcrypt.hash(password, 12);
 const existing = await User.findOne({ email });
 if (existing) {
-  existing.set({ role: 'admin', active: true, passwordHash, name });
-  await existing.save();
+  await User.updateOne({ _id: existing._id }, {
+    $set: { role: 'admin', active: true, passwordHash, name },
+    $inc: { authVersion: 1 },
+  });
   console.log(`Updated ${email}: role=admin, password reset.`);
 } else {
   await User.create({ email, name, role: 'admin', passwordHash });

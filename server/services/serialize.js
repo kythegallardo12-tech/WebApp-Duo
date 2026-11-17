@@ -56,6 +56,7 @@ export const serializeOrder = (o) => ({
   })),
   total: toDollars(o.totalCents),
   status: o.status,
+  stockReserved: o.stockReserved,
   statusHistory: (o.statusHistory || []).map((h) => ({ status: h.status, at: h.at })),
   date: o.createdAt,
   createdAt: o.createdAt,

@@ -7,8 +7,8 @@ import { serializeMovement, serializeProduct } from './serialize.js';
  * The conditional filter guarantees stock never goes below zero, even when
  * several transactions race for the same units.
  */
-export async function applyStockDelta(session, { productId, delta, type, reason, orderId, actorId }) {
-  const filter = { _id: productId, deleted: false };
+export async function applyStockDelta(session, { productId, delta, type, reason, orderId, actorId, allowDeleted = false }) {
+  const filter = { _id: productId, ...(allowDeleted ? {} : { deleted: false }) };
   if (delta < 0) filter.stock = { $gte: -delta };
 
   const product = await Product.findOneAndUpdate(filter, { $inc: { stock: delta } }, { new: true, session });

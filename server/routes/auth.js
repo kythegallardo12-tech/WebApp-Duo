@@ -48,6 +48,7 @@ export function authRoutes({ ttlMs, loginLimit, allowDevReset }) {
     req.session.regenerate((err) => {
       if (err) return next(err);
       req.session.userId = String(user._id);
+      req.session.authVersion = user.authVersion ?? 0;
       req.session.authAt = Date.now();
       req.session.ttlMs = ttlMs;
       issueCsrfToken(req.session);

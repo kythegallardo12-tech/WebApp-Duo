@@ -1,3 +1,4 @@
+import { useCurrency } from '../hooks/useCurrency';
 import { useRef, useEffect, useCallback } from 'react';
 import { TrendingUp, TrendingDown, Award } from 'lucide-react';
 import gsap from 'gsap';
@@ -15,7 +16,6 @@ import useStore from '../store/useStore';
  * - Miller's Law: four focused KPI tiles
  */
 
-const usd = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const statusColors = {
   pending: 'from-amber-500 to-orange-500',
   processing: 'from-blue-500 to-indigo-500',
@@ -36,6 +36,7 @@ const Growth = ({ value, label }) => {
 };
 
 const AnalyticsPage = () => {
+  const { money: usd, compactMoney } = useCurrency();
   const chartRef = useRef(null);
   const dataVersion = useStore((s) => s.dataVersion);
   const fetchAnalytics = useCallback((onProgress, signal) => api.dashboard({ signal }), []);
@@ -98,7 +99,7 @@ const AnalyticsPage = () => {
                         const pct = Math.round((d.revenue / max) * 100);
                         return (
                           <div key={`${d.year}-${d.month}`} className="flex-1 flex flex-col items-center gap-2 h-full justify-end">
-                            <span className="text-[10px] sm:text-[11px] font-mono text-slate-400">${d.revenue >= 1000 ? `${(d.revenue / 1000).toFixed(1)}k` : d.revenue.toFixed(0)}</span>
+                            <span className="text-[10px] sm:text-[11px] font-mono text-slate-400">{compactMoney(d.revenue)}</span>
                             <div className="w-full bg-white/[0.03] rounded-t-xl h-48 relative overflow-hidden flex items-end">
                               <div
                                 className="analytics-bar w-full bg-gradient-to-t from-blue-700 via-blue-500 to-cyan-300 rounded-t-xl origin-bottom shadow-lg shadow-blue-500/20"

@@ -1,3 +1,4 @@
+import { useCurrency } from '../hooks/useCurrency';
 import { useState, useCallback } from 'react';
 import { AlertTriangle, Minus, Search, CheckCircle2, TrendingDown, Warehouse, History } from 'lucide-react';
 import GlassCard from '../components/ui/GlassCard';
@@ -52,11 +53,13 @@ const MovementHistory = ({ product }) => {
 };
 
 const InventoryPage = () => {
+  const { money } = useCurrency();
   const products = useStore((s) => s.products);
   const pending = useStore((s) => s.pending);
   const adjustStock = useStore((s) => s.adjustStock);
   const loadProducts = useStore((s) => s.loadProducts);
   const canAdjust = useAuth((s) => s.can)('inventory:adjust');
+  const showAlerts = useStore((s) => s.settings?.lowStockAlerts !== false);
 
   const [search, setSearch] = useState('');
   const [stockFilter, setStockFilter] = useState('all');
@@ -141,7 +144,7 @@ const InventoryPage = () => {
           </GlassCard>
         </div>
 
-        {lowStockItems.length + outOfStockItems.length > 0 && (
+        {showAlerts && lowStockItems.length + outOfStockItems.length > 0 && (
           <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-sm text-amber-200 flex items-start gap-3" role="status">
             <AlertTriangle size={18} className="flex-shrink-0 mt-0.5" />
             <p>
@@ -196,7 +199,7 @@ const InventoryPage = () => {
                         <td className="px-5 py-4">
                           <p className="font-bold text-white">{p.name}</p>
                           <p className="text-xs text-slate-400">
-                            ${p.price.toFixed(2)} / unit
+                            {money(p.price)} / unit
                             {pending[p.id] && <span className="ml-2 text-blue-300">· saving…</span>}
                           </p>
                         </td>

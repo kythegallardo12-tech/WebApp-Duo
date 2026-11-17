@@ -12,6 +12,7 @@ const userSchema = new Schema(
     email: { type: String, required: true, trim: true, lowercase: true },
     name: { type: String, required: true, trim: true, maxlength: 80 },
     passwordHash: { type: String, required: true, select: false },
+    authVersion: { type: Number, default: 0 },
     role: { type: String, enum: ROLES, default: 'staff' },
     active: { type: Boolean, default: true },
     lastLoginAt: Date,
