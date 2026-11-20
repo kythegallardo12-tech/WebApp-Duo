@@ -27,8 +27,12 @@ export function isScrollLocked() {
   return holders > 0;
 }
 
-/** Test helper: forget every holder and unlock. */
-export function resetScrollLock() {
+/**
+ * Drop every lock. Called on route changes: a new page never starts locked, even if an
+ * overlay from the previous page failed to release (overlays release on unmount anyway,
+ * so a later release from them is a no-op). Also used to isolate unit tests.
+ */
+export function releaseAllScrollLocks() {
   holders = 0;
   root()?.removeAttribute('data-scroll-locked');
 }

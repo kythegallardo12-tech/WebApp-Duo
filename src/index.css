@@ -56,13 +56,6 @@
     scrollbar-color: rgb(148 163 184 / 0.28) transparent;
   }
 
-  /* Smooth jumps for the landing page's in-page links only, never for app scrolling. */
-  @media (prefers-reduced-motion: no-preference) {
-    html:has(.landing) {
-      scroll-behavior: smooth;
-    }
-  }
-
   html[data-scroll-locked] {
     overflow: hidden;
   }

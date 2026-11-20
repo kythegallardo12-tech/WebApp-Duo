@@ -21,9 +21,7 @@ export function postSignInPath(from) {
   const path = typeof from === 'string' ? from : from && typeof from.pathname === 'string'
     ? `${from.pathname}${from.search || ''}${from.hash || ''}`
     : null;
-  if (!path) return ROUTES.app;
-  if (!path.startsWith('/app')) return ROUTES.app;
-  if (path.startsWith('//') || path.includes('\\')) return ROUTES.app;
+  if (!path || path.includes('\\')) return ROUTES.app;
   if (path !== '/app' && !path.startsWith('/app/') && !path.startsWith('/app?') && !path.startsWith('/app#')) return ROUTES.app;
   return path;
 }

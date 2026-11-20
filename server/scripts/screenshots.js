@@ -38,6 +38,15 @@ async function signIn(page, who = 'admin') {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1.5, colorScheme: 'dark' });
   const page = await ctx.newPage();
   await signIn(page);
+  // Public images should not show a test account name; the next /__e2e/reset restores it.
+  await page.evaluate(async () => {
+    const me = await (await fetch('/api/auth/me')).json();
+    await fetch(`/api/users/${me.user.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': me.csrfToken },
+      body: JSON.stringify({ name: 'Store Admin' }),
+    });
+  });
   const product = async (name, url, ready) => {
     await page.goto(`${base}${url}`);
     await ready();

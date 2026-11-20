@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar, MobileNav } from './Sidebar';
 import ToastContainer from '../ui/Toast';
@@ -23,8 +23,16 @@ const Layout = () => {
     loadSettings().catch(() => {});
   }, []);
 
+  // After an in-app navigation, move focus to the new page so keyboard and screen-reader users
+  // start there (the first render keeps the browser's default, so Tab still reaches the skip link).
+  const firstRender = useRef(true);
   useEffect(() => {
     setMobileNav(false);
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    document.getElementById('main')?.focus({ preventScroll: true });
   }, [location.pathname, setMobileNav]);
 
   return (

@@ -163,7 +163,8 @@ const SignInPage = () => {
                   onClick={() => setShowPassword((v) => !v)}
                   className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 px-2.5 rounded-md text-xs font-semibold text-ink-2 hover:text-ink hover:bg-white/5"
                   aria-pressed={showPassword}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-label="Show password"
+                  aria-controls="login-password"
                 >
                   {showPassword ? 'Hide' : 'Show'}
                 </button>

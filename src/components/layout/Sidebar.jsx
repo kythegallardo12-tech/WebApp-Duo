@@ -75,7 +75,7 @@ export const MobileNav = () => {
   const close = () => setMobileNav(false);
 
   return (
-    <Dialog isOpen={open} onClose={close} variant="sheet" side="left" width="17.5rem" closeLabel="Close navigation">
+    <Dialog isOpen={open} onClose={close} variant="sheet" side="left" width="17.5rem" label="Main navigation">
       <div className="-m-5 flex flex-col min-h-full">
         <div className="flex items-center justify-between h-15 pl-5 pr-2 border-b border-line">
           <Link to={ROUTES.app} onClick={close} className="rounded-md text-[1.1875rem]" aria-label="StockFlow dashboard">

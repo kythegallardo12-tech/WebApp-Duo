@@ -9,8 +9,8 @@ const icons = {
 };
 
 /**
- * Notifications. The region is always mounted so screen readers announce new messages;
- * errors are announced assertively, everything else politely.
+ * Notifications. The region is always mounted as one polite live region, so screen readers
+ * announce each new message exactly once.
  */
 const ToastContainer = () => {
   const toasts = useStore((s) => s.toasts);
@@ -19,7 +19,7 @@ const ToastContainer = () => {
   return (
     <div className="toast-region" role="region" aria-label="Notifications" aria-live="polite">
       {toasts.map((toast) => (
-        <div key={toast.id} className="toast" role={toast.type === 'error' ? 'alert' : undefined}>
+        <div key={toast.id} className="toast">
           <span className="mt-px">{icons[toast.type] || icons.info}</span>
           <div className="flex-1 min-w-0">
             {toast.title && <p className="text-sm font-semibold text-ink">{toast.title}</p>}

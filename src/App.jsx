@@ -14,7 +14,7 @@ import SettingsPage from './pages/SettingsPage';
 import useAuth from './store/useAuth';
 import useStore from './store/useStore';
 import { ROUTES, LEGACY_PATHS } from './lib/routes';
-import { resetScrollLock } from './lib/scrollLock';
+import { releaseAllScrollLocks } from './lib/scrollLock';
 
 /** Checks the session once for every route and clears workspace data after sign-out. */
 function SessionBootstrap() {
@@ -40,7 +40,7 @@ function SessionBootstrap() {
 function ScrollManager() {
   const { pathname, hash } = useLocation();
   useEffect(() => {
-    resetScrollLock();
+    releaseAllScrollLocks();
     if (hash) {
       const target = document.getElementById(decodeURIComponent(hash.slice(1)));
       if (target) {

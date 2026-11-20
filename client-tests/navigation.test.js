@@ -1,7 +1,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { postSignInPath, ROUTES } from '../src/lib/routes.js';
-import { lockScroll, isScrollLocked, resetScrollLock } from '../src/lib/scrollLock.js';
+import { lockScroll, isScrollLocked, releaseAllScrollLocks } from '../src/lib/scrollLock.js';
 
 test('after sign-in, workspace paths are kept with their query and hash', () => {
   assert.equal(postSignInPath({ pathname: '/app/orders', search: '?q=1', hash: '#x' }), '/app/orders?q=1#x');
@@ -23,7 +23,7 @@ globalThis.document = {
     removeAttribute: (k) => attrs.delete(k),
   },
 };
-beforeEach(() => resetScrollLock());
+beforeEach(() => releaseAllScrollLocks());
 
 test('scroll stays locked until the last overlay releases it', () => {
   const sheet = lockScroll();

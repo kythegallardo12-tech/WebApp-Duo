@@ -7,9 +7,10 @@ import { ROUTES } from '../lib/routes';
 const REPO_URL = 'https://github.com/kythegallardo12-tech/WebApp-Duo';
 const YEAR = new Date().getFullYear();
 
-/** Screenshot of the real workspace, framed. Sample data is labelled as such. */
+/** Screenshot of the real workspace, framed. Every one is labelled as sample data. */
 const Screenshot = ({ src, mobileSrc, alt, width, height, priority = false, className = '' }) => (
-  <div className={`rounded-[14px] sm:rounded-[18px] border border-line-strong bg-surface p-1 sm:p-1.5 shadow-[0_30px_80px_-20px_rgb(0_0_0/0.7)] ${className}`}>
+  <figure className={className}>
+  <div className="rounded-[14px] sm:rounded-[18px] border border-line-strong bg-surface p-1 sm:p-1.5 shadow-[0_30px_80px_-20px_rgb(0_0_0/0.7)]">
     <picture>
       {mobileSrc && <source media="(max-width: 639px)" srcSet={mobileSrc} />}
       <img
@@ -24,6 +25,8 @@ const Screenshot = ({ src, mobileSrc, alt, width, height, priority = false, clas
       />
     </picture>
   </div>
+  <figcaption className="mt-3 text-center text-xs text-ink-3">Sample data</figcaption>
+  </figure>
 );
 
 const Bullet = ({ children }) => (
@@ -36,7 +39,14 @@ const Bullet = ({ children }) => (
 const LandingPage = () => {
   const status = useAuth((s) => s.status);
   const signedIn = status === 'signedIn';
-  const primary = signedIn ? { to: ROUTES.app, label: 'Open your workspace' } : { to: ROUTES.signIn, label: 'Sign in to your workspace' };
+  const signedOut = status === 'signedOut' || status === 'offline';
+  // While the session check runs, link to the workspace: a signed-in visitor lands there and a
+  // signed-out one is sent to sign-in and brought back, so the label is never wrong.
+  const primary = signedIn
+    ? { to: ROUTES.app, label: 'Open your workspace' }
+    : signedOut
+      ? { to: ROUTES.signIn, label: 'Sign in to your workspace' }
+      : { to: ROUTES.app, label: 'Go to your workspace' };
 
   return (
     <div className="landing min-h-dvh bg-canvas text-ink">
@@ -95,8 +105,8 @@ const LandingPage = () => {
               {!signedIn && <p className="mt-5 text-sm text-ink-3">Accounts are created by your workspace administrator.</p>}
             </div>
 
-            <figure className="mt-14 sm:mt-20">
-              <Screenshot
+            <Screenshot
+                className="mt-14 sm:mt-20"
                 src="/product/dashboard.jpg"
                 mobileSrc="/product/dashboard-mobile.jpg"
                 width={2160}
@@ -104,8 +114,6 @@ const LandingPage = () => {
                 priority
                 alt="The StockFlow overview screen: revenue, orders, customers and product totals, a six-month revenue chart, stock health, recent orders and top sellers."
               />
-              <figcaption className="mt-4 text-center text-xs text-ink-3">Shown with sample data.</figcaption>
-            </figure>
           </div>
         </section>
 

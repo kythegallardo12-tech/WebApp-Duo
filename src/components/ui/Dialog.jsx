@@ -11,7 +11,7 @@ import { lockScroll } from '../../lib/scrollLock';
  *
  * variant "modal" is a centred decision; "sheet" slides in from the edge for forms and details.
  */
-const Dialog = ({ isOpen, onClose, title, description, children, footer, variant = 'modal', side = 'right', width, closeLabel = 'Close' }) => {
+const Dialog = ({ isOpen, onClose, title, label, description, children, footer, variant = 'modal', side = 'right', width, closeLabel = 'Close' }) => {
   const ref = useRef(null);
   const returnFocus = useRef(null);
   const onCloseRef = useRef(onClose);
@@ -80,6 +80,7 @@ const Dialog = ({ isOpen, onClose, title, description, children, footer, variant
       className={cls}
       style={width ? { '--dialog-width': width } : undefined}
       aria-labelledby={title ? titleId : undefined}
+      aria-label={!title ? label : undefined}
       aria-describedby={description ? descId : undefined}
       onPointerDown={onPointerDown}
       onClick={onClick}
