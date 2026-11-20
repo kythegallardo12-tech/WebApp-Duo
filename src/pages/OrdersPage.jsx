@@ -1,32 +1,25 @@
-import { useCurrency } from '../hooks/useCurrency';
 import { useState, useCallback, useMemo } from 'react';
-import { Plus, Search, Clock, Truck, PackageCheck, AlertCircle, Eye, XCircle, ChevronRight, User, MapPin, Calendar, Trash2, Ban } from 'lucide-react';
-import GlassCard from '../components/ui/GlassCard';
-import SpotlightCard from '../components/reactbits/SpotlightCard';
+import { Plus, Search, Eye, XCircle, ArrowRight, Trash2, AlertCircle, ShoppingCart } from 'lucide-react';
+import Header from '../components/layout/Header';
 import SmartLoadingWrapper from '../components/ui/SmartLoadingWrapper';
 import Modal from '../components/ui/Modal';
 import Sheet from '../components/ui/Sheet';
-import Header from '../components/layout/Header';
+import { Stat } from '../components/ui/Stat';
+import { orderStatus, PAGE } from '../components/ui/status';
 import { useSmartLoader } from '../hooks/useSmartLoader';
+import { useCurrency } from '../hooks/useCurrency';
+import { useCompact } from '../hooks/useMediaQuery';
 import useStore from '../store/useStore';
 import useAuth from '../store/useAuth';
 
 /**
  * Orders
- * - Fulfillment path: pending -> processing -> shipped -> delivered (one tap per step)
- * - Cancellation is allowed while an order is pending or processing; it returns the
- *   reserved stock. Shipped and delivered orders cannot be cancelled.
- * - The server prices every order; the totals shown here before confirmation are previews.
- * - Peak-End Rule: delivering an order ends with a positive confirmation.
+ * - Fulfillment path: pending → processing → shipped → delivered, one explicit step at a time.
+ * - Cancellation is allowed while an order is pending or processing; it returns the reserved
+ *   stock. Shipped and delivered orders cannot be cancelled.
+ * - The server prices every order; totals shown before saving are estimates.
  */
 
-const statusConfig = {
-  pending: { label: 'Pending', color: 'bg-amber-500/15 text-amber-400 border-amber-500/30', next: 'processing', icon: Clock },
-  processing: { label: 'Processing', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30', next: 'shipped', icon: AlertCircle },
-  shipped: { label: 'Shipped', color: 'bg-purple-500/15 text-purple-400 border-purple-500/30', next: 'delivered', icon: Truck },
-  delivered: { label: 'Delivered', color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', next: null, icon: PackageCheck },
-  cancelled: { label: 'Cancelled', color: 'bg-slate-500/15 text-slate-400 border-slate-500/30', next: null, icon: Ban },
-};
 const CANCELLABLE = ['pending', 'processing'];
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '');
 const emptyForm = () => ({ customer: '', email: '', address: '', lines: [{ productId: '', qty: 1 }] });
@@ -42,6 +35,7 @@ const OrdersPage = () => {
   const cancelOrder = useStore((s) => s.cancelOrder);
   const addToast = useStore((s) => s.addToast);
   const canWrite = useAuth((s) => s.can)('orders:write');
+  const compact = useCompact();
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -58,14 +52,14 @@ const OrdersPage = () => {
   const inspect = orders.find((o) => o.id === inspectId);
 
   const handleAdvanceStatus = async (order) => {
-    const next = statusConfig[order.status]?.next;
+    const next = orderStatus[order.status]?.next;
     if (!next || !canWrite || order.optimistic) return;
     const res = await transitionOrder(order.id, next);
     if (res.ok) {
       addToast({
         type: next === 'delivered' ? 'success' : 'info',
         title: next === 'delivered' ? 'Order delivered' : 'Status updated',
-        message: `${res.order.orderNumber} is now ${statusConfig[next].label.toLowerCase()}.`,
+        message: `${res.order.orderNumber} is now ${orderStatus[next].label.toLowerCase()}.`,
       });
     }
   };
@@ -85,7 +79,7 @@ const OrdersPage = () => {
     e.preventDefault();
     setFormError(null);
     const lines = form.lines.filter((l) => l.productId);
-    if (!form.customer.trim() || !form.address.trim()) return setFormError('Customer name and address are required.');
+    if (!form.customer.trim() || !form.address.trim()) return setFormError('Customer name and delivery address are required.');
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) return setFormError('Enter a valid customer email.');
     if (!lines.length) return setFormError('Add at least one product.');
     if (lines.some((l) => !Number.isInteger(Number(l.qty)) || Number(l.qty) < 1)) return setFormError('Quantities must be whole numbers of at least 1.');
@@ -94,7 +88,7 @@ const OrdersPage = () => {
     for (const l of lines) combined.set(l.productId, (combined.get(l.productId) || 0) + Number(l.qty));
     for (const [id, qty] of combined) {
       const p = products.find((x) => x.id === id);
-      if (p && qty > p.stock) return setFormError(`Only ${p.stock} of "${p.name}" in stock.`);
+      if (p && qty > p.stock) return setFormError(`Only ${p.stock} of “${p.name}” in stock.`);
     }
     const payload = {
       customer: form.customer.trim(),
@@ -118,6 +112,28 @@ const OrdersPage = () => {
     if (ord) await cancelOrder(ord.id);
   };
 
+  // Next step, details and cancel always sit in the same three slots so rows line up.
+  const orderActions = ({ ord, st, busy }) => (
+    <div className="inline-flex items-center gap-1">
+      {canWrite && st.next && !busy && (
+        <button type="button" onClick={() => handleAdvanceStatus(ord)} className="btn btn-secondary btn-sm" aria-label={`${st.action}: ${ord.orderNumber}`} data-testid="order-advance">
+          {st.action} <ArrowRight size={13} aria-hidden="true" />
+        </button>
+      )}
+      <button type="button" onClick={() => setInspectId(ord.id)} className="icon-btn" aria-label={`Details of ${ord.orderNumber}`} title="Details">
+        <Eye size={16} />
+      </button>
+      {canWrite &&
+        (CANCELLABLE.includes(ord.status) && !busy ? (
+          <button type="button" onClick={() => setCancelTarget(ord)} className="icon-btn icon-btn-danger" aria-label={`Cancel ${ord.orderNumber}`} title="Cancel order">
+            <XCircle size={16} />
+          </button>
+        ) : (
+          <span className="w-9 max-[639px]:hidden" aria-hidden="true" />
+        ))}
+    </div>
+  );
+
   const q = search.toLowerCase();
   const filteredOrders = orders.filter((o) => {
     if (q && ![o.orderNumber, o.customer, o.email].some((v) => String(v || '').toLowerCase().includes(q))) return false;
@@ -129,243 +145,273 @@ const OrdersPage = () => {
   const delivered = live.filter((o) => o.status === 'delivered').length;
 
   return (
-    <div>
-      <Header title="Fulfillment & Dispatch Pipeline" subtitle="Order processing from pending to delivered" />
+    <>
+      <Header title="Orders" subtitle="From pending to delivered" />
 
-      <div className="p-4 sm:p-6 space-y-6">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <SpotlightCard className="border-blue-500/20">
-            <span className="text-xs uppercase font-semibold text-slate-400 block mb-1">Active Orders</span>
-            <span className="text-2xl sm:text-3xl font-black text-white">{live.length}</span>
-          </SpotlightCard>
-          <GlassCard className="border-amber-500/20">
-            <span className="text-xs uppercase font-semibold text-slate-400 block mb-1">Awaiting Processing</span>
-            <span className="text-2xl sm:text-3xl font-black text-amber-400">{orders.filter((o) => o.status === 'pending' || o.status === 'processing').length}</span>
-          </GlassCard>
-          <GlassCard className="border-purple-500/20">
-            <span className="text-xs uppercase font-semibold text-slate-400 block mb-1">In Transit</span>
-            <span className="text-2xl sm:text-3xl font-black text-purple-400">{orders.filter((o) => o.status === 'shipped').length}</span>
-          </GlassCard>
-          <GlassCard className="border-emerald-500/20">
-            <span className="text-xs uppercase font-semibold text-slate-400 block mb-1">Fulfillment Rate</span>
-            <span className="text-2xl sm:text-3xl font-black text-emerald-400">{Math.round((delivered / (live.length || 1)) * 100)}%</span>
-          </GlassCard>
-        </div>
+      <div className={PAGE}>
+        <section aria-label="Order summary" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <Stat label="Active orders" value={live.length} meta="Excluding cancelled" />
+          <Stat label="To process" value={orders.filter((o) => o.status === 'pending' || o.status === 'processing').length} tone="warning" meta="Pending or processing" />
+          <Stat label="Shipped" value={orders.filter((o) => o.status === 'shipped').length} meta="On the way" />
+          <Stat label="Delivered" value={`${Math.round((delivered / (live.length || 1)) * 100)}%`} tone="success" meta="Of active orders" />
+        </section>
 
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-          <div className="flex flex-1 flex-col sm:flex-row gap-3">
-            <div className="relative flex-1 max-w-md">
-              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 z-10 pointer-events-none text-slate-400" aria-hidden="true" />
-              <input type="search" aria-label="Search orders" placeholder="Search by order number, customer or email..." value={search} onChange={(e) => setSearch(e.target.value)} className="glass-input pl-10 text-sm h-11" />
-            </div>
-            <select aria-label="Filter by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="glass-input text-sm h-11 w-full sm:w-44">
-              <option value="all" className="bg-slate-900 text-white">All orders</option>
-              {Object.entries(statusConfig).map(([k, v]) => (
-                <option key={k} value={k} className="bg-slate-900 text-white">
-                  {v.label}
-                </option>
-              ))}
-            </select>
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+          <div className="search flex-1 sm:max-w-md">
+            <Search size={16} aria-hidden="true" />
+            <input type="search" aria-label="Search orders" placeholder="Search by order number, customer or email" value={search} onChange={(e) => setSearch(e.target.value)} className="input" />
           </div>
+          <select aria-label="Filter by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="input sm:w-44">
+            <option value="all">All statuses</option>
+            {Object.entries(orderStatus).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v.label}
+              </option>
+            ))}
+          </select>
           {canWrite && (
             <button
+              type="button"
               onClick={() => {
                 setFormError(null);
                 setCreateSheet(true);
               }}
-              className="btn-primary h-11 px-5 text-sm font-bold shadow-lg shadow-blue-600/30 flex items-center gap-2"
+              className="btn btn-primary sm:ml-auto"
             >
-              <Plus size={18} />
-              <span>New Order</span>
+              <Plus size={17} aria-hidden="true" />
+              <span>New order</span>
             </button>
           )}
         </div>
 
         <SmartLoadingWrapper loadingState={loadingState} progress={progress} timeLeft={timeLeft} error={error} onRetry={refetch} skeletonType="table" skeletonCount={5} message="Loading orders…">
-          <GlassCard padding="p-0" className="border-white/10 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+          <div className="card overflow-hidden">
+            {compact ? (
+              <ul className="divide-y divide-line">
+                {filteredOrders.map((ord) => {
+                  const st = orderStatus[ord.status] || orderStatus.pending;
+                  const busy = !!pending[ord.id] || ord.optimistic;
+                  return (
+                    <li key={ord.id} className="p-4 space-y-2.5" data-testid="order-row" data-order={ord.orderNumber}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium text-ink">{ord.customer}</p>
+                          <p className="text-xs text-ink-3">
+                            <span className="font-mono">{ord.orderNumber}</span> · {fmtDate(ord.date)}
+                          </p>
+                        </div>
+                        <p className="font-semibold text-ink tabular">{money(ord.total)}</p>
+                      </div>
+                      <p className="text-sm text-ink-2">{ord.items.map((i) => `${i.name} ×${i.qty}`).join(', ')}</p>
+                      <div className="flex items-center justify-between gap-2 pt-1">
+                        <span className={`badge ${st.badge}`} data-testid="order-status">
+                          {busy ? 'Saving…' : st.label}
+                        </span>
+                        {orderActions({ ord, st, busy })}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+            <div className="table-wrap">
+              <table className="table min-w-[60rem]">
                 <thead>
-                  <tr className="border-b border-white/10 bg-white/[0.02] text-xs uppercase tracking-wider text-slate-400">
-                    <th className="px-5 py-3.5 font-semibold">Order</th>
-                    <th className="px-5 py-3.5 font-semibold">Customer</th>
-                    <th className="px-5 py-3.5 font-semibold">Items</th>
-                    <th className="px-5 py-3.5 font-semibold">Total</th>
-                    <th className="px-5 py-3.5 font-semibold">Status{canWrite ? ' (tap to advance)' : ''}</th>
-                    <th className="px-5 py-3.5 font-semibold text-right">Actions</th>
+                  <tr>
+                    <th scope="col">Order</th>
+                    <th scope="col">Customer</th>
+                    <th scope="col">Items</th>
+                    <th scope="col" className="text-right">Total</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" className="text-right">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/[0.03]">
+                <tbody>
                   {filteredOrders.map((ord) => {
-                    const cfg = statusConfig[ord.status] || statusConfig.pending;
-                    const StatusIcon = cfg.icon;
+                    const st = orderStatus[ord.status] || orderStatus.pending;
                     const busy = !!pending[ord.id] || ord.optimistic;
                     return (
-                      <tr key={ord.id} className="hover:bg-white/[0.02] transition-colors" data-testid="order-row" data-order={ord.orderNumber}>
-                        <td className="px-5 py-4">
-                          <p className="font-mono text-xs font-bold text-blue-400">{ord.orderNumber}</p>
-                          <p className="text-[11px] text-slate-400">{fmtDate(ord.date)}</p>
+                      <tr key={ord.id} data-testid="order-row" data-order={ord.orderNumber}>
+                        <td className="whitespace-nowrap">
+                          <p className="font-mono text-[0.8125rem] text-ink">{ord.orderNumber}</p>
+                          <p className="text-xs text-ink-3">{fmtDate(ord.date)}</p>
                         </td>
-                        <td className="px-5 py-4">
-                          <p className="font-bold text-white">{ord.customer}</p>
-                          <p className="text-xs text-slate-400">{ord.email}</p>
+                        <td>
+                          <p className="font-medium text-ink">{ord.customer}</p>
+                          <p className="text-xs text-ink-3">{ord.email}</p>
                         </td>
-                        <td className="px-5 py-4 text-xs text-slate-300 max-w-[260px]">{ord.items.map((i) => `${i.name} (×${i.qty})`).join(', ')}</td>
-                        <td className="px-5 py-4 font-black text-white whitespace-nowrap">{money(ord.total)}</td>
-                        <td className="px-5 py-4">
-                          <button
-                            onClick={() => handleAdvanceStatus(ord)}
-                            disabled={!cfg.next || !canWrite || busy}
-                            className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider border flex items-center gap-1.5 transition-all enabled:hover:scale-105 disabled:cursor-default ${cfg.color}`}
-                            aria-label={cfg.next && canWrite ? `${ord.orderNumber}: ${cfg.label}. Advance to ${statusConfig[cfg.next].label}` : `${ord.orderNumber}: ${cfg.label}`}
-                            data-testid="order-status"
-                          >
-                            <StatusIcon size={12} />
-                            <span>{busy ? 'Saving…' : cfg.label}</span>
-                            {cfg.next && canWrite && !busy && <ChevronRight size={12} className="opacity-60" />}
-                          </button>
+                        <td className="text-ink-2 max-w-[16rem]">
+                          <p className="line-clamp-2">{ord.items.map((i) => `${i.name} ×${i.qty}`).join(', ')}</p>
                         </td>
-                        <td className="px-5 py-4 text-right whitespace-nowrap">
-                          <button onClick={() => setInspectId(ord.id)} className="p-2 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white" aria-label={`Details of ${ord.orderNumber}`}>
-                            <Eye size={15} />
-                          </button>
-                          {canWrite && CANCELLABLE.includes(ord.status) && !busy && (
-                            <button onClick={() => setCancelTarget(ord)} className="p-2 rounded-lg hover:bg-rose-500/10 text-slate-400 hover:text-rose-400" aria-label={`Cancel ${ord.orderNumber}`} title="Cancel order">
-                              <XCircle size={15} />
-                            </button>
-                          )}
+                        <td className="text-right font-medium text-ink tabular whitespace-nowrap">{money(ord.total)}</td>
+                        <td>
+                          <span className={`badge ${st.badge}`} data-testid="order-status">
+                            {busy ? 'Saving…' : st.label}
+                          </span>
+                        </td>
+                        <td className="text-right whitespace-nowrap">
+                          {orderActions({ ord, st, busy })}
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
-              {filteredOrders.length === 0 && <p className="text-center text-sm text-slate-400 py-12">No orders match these filters.</p>}
             </div>
-          </GlassCard>
+            )}
+            {filteredOrders.length === 0 && (
+                <div className="px-6 py-12 text-center">
+                  <span className="mx-auto mb-3 flex w-11 h-11 items-center justify-center rounded-full bg-raised text-ink-3">
+                    <ShoppingCart size={20} aria-hidden="true" />
+                  </span>
+                  <p className="text-sm font-medium text-ink">{orders.length ? 'No orders match these filters' : 'No orders yet'}</p>
+                  <p className="text-sm text-ink-3 mt-1">{orders.length ? 'Try another search or status.' : 'New orders appear here as soon as they are created.'}</p>
+                </div>
+              )}
+          </div>
         </SmartLoadingWrapper>
       </div>
 
-      <Sheet isOpen={createSheet} onClose={() => setCreateSheet(false)} title="Create Order">
-        <form onSubmit={handleCreateOrder} className="space-y-4" noValidate>
-          {[
-            ['customer', 'Customer Full Name', 'text', 'e.g. Elena Rostova'],
-            ['email', 'Customer Email', 'email', 'elena@example.org'],
-            ['address', 'Delivery Address', 'text', '88 Tech Boulevard, Sector 4'],
-          ].map(([key, label, type, placeholder]) => (
-            <div key={key}>
-              <label htmlFor={`order-${key}`} className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-                {label}
-              </label>
-              <input id={`order-${key}`} type={type} value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} className="glass-input text-sm" placeholder={placeholder} required />
-            </div>
-          ))}
+      <Sheet isOpen={createSheet} onClose={() => setCreateSheet(false)} title="New order" width="34rem">
+        <form onSubmit={handleCreateOrder} className="space-y-5" noValidate>
+          <fieldset className="space-y-4">
+            <legend className="text-sm font-semibold text-ink mb-3">Customer</legend>
+            {[
+              ['customer', 'Customer name', 'text', 'e.g. Elena Rostova', 'name'],
+              ['email', 'Customer email', 'email', 'name@example.com', 'email'],
+              ['address', 'Delivery address', 'text', 'Street, city', 'street-address'],
+            ].map(([key, label, type, placeholder, autoComplete], i) => (
+              <div key={key}>
+                <label htmlFor={`order-${key}`} className="field-label">
+                  {label}
+                </label>
+                <input
+                  id={`order-${key}`}
+                  type={type}
+                  value={form[key]}
+                  onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                  className="input"
+                  placeholder={placeholder}
+                  autoComplete={autoComplete}
+                  required
+                  {...(i === 0 ? { 'data-autofocus': true } : {})}
+                />
+              </div>
+            ))}
+          </fieldset>
 
-          <fieldset className="space-y-3">
-            <legend className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Items</legend>
+          <fieldset className="space-y-3 pt-5 border-t border-line">
+            <legend className="text-sm font-semibold text-ink mb-3 float-left w-full">Items</legend>
             {form.lines.map((line, i) => {
               const p = products.find((x) => x.id === line.productId);
               return (
                 <div key={i} className="flex gap-2 items-start" data-testid="order-line">
                   <div className="flex-1 min-w-0">
-                    <select aria-label={`Product for line ${i + 1}`} value={line.productId} onChange={(e) => setLine(i, { productId: e.target.value })} className="glass-input text-sm">
-                      <option value="" className="bg-slate-900 text-white">Choose a product…</option>
+                    <select aria-label={`Product for line ${i + 1}`} value={line.productId} onChange={(e) => setLine(i, { productId: e.target.value })} className="input">
+                      <option value="">Choose a product…</option>
                       {orderable.map((op) => (
-                        <option key={op.id} value={op.id} disabled={op.stock === 0} className="bg-slate-900 text-white">
+                        <option key={op.id} value={op.id} disabled={op.stock === 0}>
                           {op.name} — {money(op.price)} ({op.stock} in stock)
                         </option>
                       ))}
                     </select>
-                    {p && p.stock <= p.minStock && <p className="text-[11px] text-amber-400 mt-1">Low stock: {p.stock} left</p>}
+                    {p && p.stock <= p.minStock && <p className="text-xs text-warning mt-1">Low stock: {p.stock} left</p>}
                   </div>
-                  <input aria-label={`Quantity for line ${i + 1}`} type="number" min="1" step="1" value={line.qty} onChange={(e) => setLine(i, { qty: e.target.value })} className="glass-input text-sm font-bold w-20" />
+                  <input aria-label={`Quantity for line ${i + 1}`} type="number" min="1" step="1" inputMode="numeric" value={line.qty} onChange={(e) => setLine(i, { qty: e.target.value })} className="input w-20 tabular" />
                   <button
                     type="button"
                     onClick={() => setForm((f) => ({ ...f, lines: f.lines.length > 1 ? f.lines.filter((_, idx) => idx !== i) : f.lines }))}
                     disabled={form.lines.length === 1}
-                    className="p-3 rounded-lg hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 disabled:opacity-20"
+                    className="icon-btn icon-btn-danger h-10"
                     aria-label={`Remove line ${i + 1}`}
                   >
-                    <Trash2 size={15} />
+                    <Trash2 size={16} />
                   </button>
                 </div>
               );
             })}
-            <button type="button" onClick={() => setForm((f) => ({ ...f, lines: [...f.lines, { productId: '', qty: 1 }] }))} className="btn-ghost text-xs px-3 py-2 border border-white/10">
-              <Plus size={14} /> Add item
+            <button type="button" onClick={() => setForm((f) => ({ ...f, lines: [...f.lines, { productId: '', qty: 1 }] }))} className="btn btn-ghost btn-sm -ml-2">
+              <Plus size={15} aria-hidden="true" /> Add item
             </button>
           </fieldset>
 
-          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 flex justify-between text-sm">
-            <span className="text-slate-400">Estimated total</span>
-            <span className="font-black text-white">{money(preview)}</span>
+          <div className="rounded-xl bg-raised border border-line p-4">
+            <div className="flex justify-between items-baseline text-sm">
+              <span className="text-ink-2">Estimated total</span>
+              <span className="text-lg font-semibold text-ink tabular">{money(preview)}</span>
+            </div>
+            <p className="text-xs text-ink-3 mt-1">Prices and stock are confirmed by the server when the order is saved.</p>
           </div>
-          <p className="text-[11px] text-slate-500">Prices and stock are confirmed by the server when the order is saved.</p>
 
           {formError && (
-            <p className="text-xs text-rose-400" role="alert">
-              {formError}
-            </p>
+            <div className="banner banner-danger" role="alert">
+              <AlertCircle size={16} aria-hidden="true" />
+              <span>{formError}</span>
+            </div>
           )}
 
-          <div className="pt-4 border-t border-white/10 flex gap-3">
-            <button type="button" onClick={() => setCreateSheet(false)} className="btn-ghost flex-1 py-3 text-sm justify-center">
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2.5 pt-5 border-t border-line">
+            <button type="button" onClick={() => setCreateSheet(false)} className="btn btn-secondary">
               Cancel
             </button>
-            <button type="submit" className="btn-primary flex-1 py-3 text-sm font-bold justify-center shadow-lg shadow-blue-600/30">
-              Create Order
+            <button type="submit" className="btn btn-primary">
+              Create order
             </button>
           </div>
         </form>
       </Sheet>
 
-      <Sheet isOpen={!!inspect} onClose={() => setInspectId(null)} title="Order Summary">
+      <Sheet isOpen={!!inspect} onClose={() => setInspectId(null)} title={inspect ? `Order ${inspect.orderNumber}` : 'Order'}>
         {inspect && (
           <div className="space-y-6">
-            <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
-              <span className="text-xs font-mono text-blue-400 block font-semibold">{inspect.orderNumber}</span>
-              <p className="text-lg font-black text-white mt-1">Total: {money(inspect.total)}</p>
-              <span className={`inline-block mt-2 text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider border ${statusConfig[inspect.status]?.color}`}>{statusConfig[inspect.status]?.label}</span>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs text-ink-3">Total</p>
+                <p className="text-2xl font-semibold tracking-tight text-ink tabular">{money(inspect.total)}</p>
+              </div>
+              <span className={`badge ${orderStatus[inspect.status]?.badge || ''}`}>{orderStatus[inspect.status]?.label}</span>
             </div>
-            <div className="space-y-3">
-              <div className="flex items-center gap-3 text-sm text-slate-300">
-                <User size={16} className="text-blue-400 flex-shrink-0" />
-                <span>
-                  {inspect.customer} ({inspect.email})
-                </span>
-              </div>
-              <div className="flex items-center gap-3 text-sm text-slate-300">
-                <MapPin size={16} className="text-blue-400 flex-shrink-0" />
-                <span>{inspect.address}</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm text-slate-300">
-                <Calendar size={16} className="text-blue-400 flex-shrink-0" />
-                <span>{new Date(inspect.date).toLocaleString()}</span>
-              </div>
-            </div>
+            <dl className="rounded-xl border border-line divide-y divide-line text-sm">
+              {[
+                ['Customer', inspect.customer],
+                ['Email', inspect.email],
+                ['Delivery address', inspect.address],
+                ['Placed', new Date(inspect.date).toLocaleString()],
+              ].map(([label, value]) => (
+                <div key={label} className="flex gap-4 px-4 py-3">
+                  <dt className="w-32 shrink-0 text-ink-3">{label}</dt>
+                  <dd className="text-ink min-w-0 break-words">{value}</dd>
+                </div>
+              ))}
+            </dl>
             <div>
-              <h4 className="text-xs uppercase font-semibold text-slate-400 mb-3">Line Items (prices at time of order)</h4>
-              <div className="space-y-2">
+              <h3 className="text-sm font-semibold text-ink mb-1">Items</h3>
+              <p className="text-xs text-ink-3 mb-3">Prices at the time of the order</p>
+              <ul className="rounded-xl border border-line divide-y divide-line">
                 {inspect.items.map((item, idx) => (
-                  <div key={idx} className="p-3 rounded-xl bg-white/[0.03] border border-white/5 flex justify-between items-center text-sm">
-                    <div>
-                      <p className="font-bold text-white">{item.name}</p>
-                      <p className="text-xs text-slate-400">
-                        {item.sku} · {item.qty} × {money(item.price)}
+                  <li key={idx} className="flex justify-between items-center gap-4 px-4 py-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium text-ink">{item.name}</p>
+                      <p className="text-xs text-ink-3">
+                        <span className="font-mono">{item.sku}</span> · {item.qty} × {money(item.price)}
                       </p>
                     </div>
-                    <span className="font-black text-emerald-400">{money(item.qty * item.price)}</span>
-                  </div>
+                    <span className="font-medium text-ink tabular">{money(item.qty * item.price)}</span>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
             {inspect.statusHistory?.length > 0 && (
               <div>
-                <h4 className="text-xs uppercase font-semibold text-slate-400 mb-3">History</h4>
-                <ol className="space-y-1 text-xs text-slate-300">
+                <h3 className="text-sm font-semibold text-ink mb-3">History</h3>
+                <ol className="space-y-2 text-sm">
                   {inspect.statusHistory.map((h, i) => (
-                    <li key={i}>
-                      <span className="font-semibold capitalize">{h.status}</span> · {new Date(h.at).toLocaleString()}
+                    <li key={i} className="flex items-center gap-3">
+                      <span className="w-1.5 h-1.5 rounded-full bg-ink-3" aria-hidden="true" />
+                      <span className="font-medium text-ink capitalize">{h.status}</span>
+                      <span className="text-ink-3">{new Date(h.at).toLocaleString()}</span>
                     </li>
                   ))}
                 </ol>
@@ -375,23 +421,27 @@ const OrdersPage = () => {
         )}
       </Sheet>
 
-      <Modal isOpen={!!cancelTarget} onClose={() => setCancelTarget(null)} title="Cancel Order" size="sm">
-        <div className="text-center py-2">
-          <p className="text-sm text-slate-300 mb-2">
-            Cancel order <strong className="text-white">{cancelTarget?.orderNumber}</strong> for {cancelTarget?.customer}?
-          </p>
-          <p className="text-xs text-slate-400 mb-6">The reserved items go back into stock. This cannot be undone.</p>
-          <div className="flex gap-3">
-            <button onClick={() => setCancelTarget(null)} className="btn-ghost flex-1 py-3 text-sm justify-center">
-              Keep Order
+      <Modal
+        isOpen={!!cancelTarget}
+        onClose={() => setCancelTarget(null)}
+        title={`Cancel ${cancelTarget?.orderNumber ?? 'order'}?`}
+        size="sm"
+        footer={
+          <>
+            <button type="button" onClick={() => setCancelTarget(null)} className="btn btn-secondary" data-autofocus>
+              Keep order
             </button>
-            <button onClick={handleCancelConfirm} className="btn-danger flex-1 py-3 text-sm font-bold justify-center">
-              Cancel Order
+            <button type="button" onClick={handleCancelConfirm} className="btn btn-danger">
+              Cancel order
             </button>
-          </div>
-        </div>
+          </>
+        }
+      >
+        <p className="text-sm text-ink-2 leading-relaxed">
+          The order for <strong className="text-ink font-medium">{cancelTarget?.customer}</strong> is cancelled and its items go back into stock. This cannot be undone.
+        </p>
       </Modal>
-    </div>
+    </>
   );
 };
 

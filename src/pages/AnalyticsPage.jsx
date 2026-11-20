@@ -1,169 +1,123 @@
-import { useCurrency } from '../hooks/useCurrency';
-import { useRef, useEffect, useCallback } from 'react';
-import { TrendingUp, TrendingDown, Award } from 'lucide-react';
-import gsap from 'gsap';
-import GlassCard from '../components/ui/GlassCard';
-import SpotlightCard from '../components/reactbits/SpotlightCard';
-import SmartLoadingWrapper from '../components/ui/SmartLoadingWrapper';
+import { useCallback } from 'react';
 import Header from '../components/layout/Header';
+import SmartLoadingWrapper from '../components/ui/SmartLoadingWrapper';
+import { Stat, Growth } from '../components/ui/Stat';
+import RevenueBars from '../components/ui/RevenueBars';
+import { orderStatus, PAGE } from '../components/ui/status';
 import { useSmartLoader } from '../hooks/useSmartLoader';
+import { useCurrency } from '../hooks/useCurrency';
 import { api } from '../api/client';
 import useStore from '../store/useStore';
 
-/**
- * Analytics — all values come from /api/dashboard (MongoDB aggregations).
- * - Peak-End Rule: highlights the strongest month and category
- * - Miller's Law: four focused KPI tiles
- */
+/** Analytics — every value comes from /api/dashboard (MongoDB aggregations). */
 
-const statusColors = {
-  pending: 'from-amber-500 to-orange-500',
-  processing: 'from-blue-500 to-indigo-500',
-  shipped: 'from-purple-500 to-pink-500',
-  delivered: 'from-emerald-500 to-teal-500',
-  cancelled: 'from-slate-500 to-slate-600',
-};
-
-const Growth = ({ value, label }) => {
-  const up = value >= 0;
-  const Icon = up ? TrendingUp : TrendingDown;
-  return (
-    <span className={`text-xs font-bold flex items-center gap-1 mt-1 ${up ? 'text-emerald-400' : 'text-rose-400'}`}>
-      <Icon size={13} /> {up ? '+' : ''}
-      {value}% {label}
-    </span>
-  );
+const pipelineColor = {
+  pending: 'bg-warning',
+  processing: 'bg-accent',
+  shipped: 'bg-shipped',
+  delivered: 'bg-success',
+  cancelled: 'bg-ink-3',
 };
 
 const AnalyticsPage = () => {
-  const { money: usd, compactMoney } = useCurrency();
-  const chartRef = useRef(null);
+  const { money } = useCurrency();
   const dataVersion = useStore((s) => s.dataVersion);
   const fetchAnalytics = useCallback((onProgress, signal) => api.dashboard({ signal }), []);
   const { data, loadingState, progress, timeLeft, error, refetch } = useSmartLoader(fetchAnalytics, [dataVersion]);
 
-  useEffect(() => {
-    if (chartRef.current && data) {
-      const bars = chartRef.current.querySelectorAll('.analytics-bar');
-      gsap.fromTo(bars, { scaleY: 0 }, { scaleY: 1, duration: 1, stagger: 0.1, ease: 'elastic.out(1, 0.75)' });
-    }
-  }, [data]);
-
-  const months = data?.revenueByMonth || [];
-  const max = Math.max(1, ...months.map((m) => m.revenue));
   const topCategory = data?.categoryMix?.[0];
   const statusTotal = data ? Object.values(data.orderStatus).reduce((a, b) => a + b, 0) : 0;
 
   return (
-    <div>
-      <Header title="Analytics" subtitle="Revenue, margin, category mix and order flow from live data" />
+    <>
+      <Header title="Analytics" subtitle="Revenue, margin, category mix and order flow" />
 
-      <div className="p-4 sm:p-6 space-y-6">
+      <div className={PAGE}>
         <SmartLoadingWrapper loadingState={loadingState} progress={progress} timeLeft={timeLeft} error={error} onRetry={refetch} skeletonType="stats" skeletonCount={4} message="Calculating analytics…">
           {data && (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <SpotlightCard className="border-blue-500/20">
-                  <span className="text-xs uppercase font-semibold text-slate-400 block mb-1">Revenue · last 30 days</span>
-                  <span className="text-3xl font-black text-white">{usd(data.growth.window.current.revenue)}</span>
-                  <Growth value={data.growth.revenue} label="vs previous 30 days" />
-                </SpotlightCard>
-                <GlassCard className="border-emerald-500/20">
-                  <span className="text-xs uppercase font-semibold text-slate-400 block mb-1">Average Order Value</span>
-                  <span className="text-3xl font-black text-emerald-400">{usd(data.totals.averageOrderValue)}</span>
-                  <span className="text-xs text-slate-400 block mt-1">Across {data.totals.orders} orders</span>
-                </GlassCard>
-                <GlassCard className="border-purple-500/20">
-                  <span className="text-xs uppercase font-semibold text-slate-400 block mb-1">Stock Retail Value</span>
-                  <span className="text-3xl font-black text-purple-400">{usd(data.inventory.retailValue)}</span>
-                  <span className="text-xs text-slate-400 block mt-1">{data.inventory.units.toLocaleString()} units on hand</span>
-                </GlassCard>
-                <GlassCard className="border-amber-500/20">
-                  <span className="text-xs uppercase font-semibold text-slate-400 block mb-1">Gross Margin</span>
-                  <span className="text-3xl font-black text-amber-400">{data.totals.grossMargin}%</span>
-                  <span className="text-xs text-slate-400 block mt-1">From unit cost at time of order</span>
-                </GlassCard>
+              <section aria-label="Key figures" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                <Stat label="Revenue, last 30 days" value={money(data.growth.window.current.revenue)} meta={<Growth value={data.growth.revenue} />} />
+                <Stat label="Average order value" value={money(data.totals.averageOrderValue)} meta={`Across ${data.totals.orders} orders`} />
+                <Stat label="Stock retail value" value={money(data.inventory.retailValue)} meta={`${data.inventory.units.toLocaleString()} units on hand`} />
+                <Stat label="Gross margin" value={`${data.totals.grossMargin}%`} meta="From unit cost at time of order" />
+              </section>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+                <section className="card lg:col-span-2" aria-labelledby="an-revenue">
+                  <div className="card-header border-0 pb-0">
+                    <div>
+                      <h2 id="an-revenue" className="card-title">Monthly revenue</h2>
+                      <p className="card-subtitle">Last 6 months, excluding cancelled orders</p>
+                    </div>
+                  </div>
+                  <div className="p-5 pt-6">
+                    <RevenueBars data={data.revenueByMonth} height="h-60" />
+                  </div>
+                </section>
+
+                <section className="card flex flex-col" aria-labelledby="an-mix">
+                  <div className="card-header">
+                    <div>
+                      <h2 id="an-mix" className="card-title">Category mix</h2>
+                      <p className="card-subtitle">Share of revenue by category</p>
+                    </div>
+                  </div>
+                  <ul className="flex-1 px-5 py-4 space-y-4">
+                    {data.categoryMix.length === 0 && <li className="text-sm text-ink-3">No sales yet.</li>}
+                    {data.categoryMix.slice(0, 6).map((cat) => (
+                      <li key={cat.name}>
+                        <div className="flex justify-between gap-3 text-sm mb-1.5">
+                          <span className="text-ink-2 truncate">{cat.name}</span>
+                          <span className="font-semibold text-ink tabular">{cat.share}%</span>
+                        </div>
+                        <div className="meter">
+                          <span style={{ width: `${cat.share}%`, background: cat.color || 'var(--color-accent)' }} />
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  {topCategory && (
+                    <p className="mx-5 mb-5 rounded-lg bg-raised border border-line px-3.5 py-3 text-sm text-ink-2">
+                      <span className="font-medium text-ink">{topCategory.name}</span> brings in {topCategory.share}% of revenue ({money(topCategory.revenue)}).
+                    </p>
+                  )}
+                </section>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2">
-                  <GlassCard className="border-white/10 p-6">
-                    <div className="flex items-center justify-between mb-6">
-                      <div>
-                        <h3 className="text-base font-bold text-white">Revenue Trajectory</h3>
-                        <p className="text-xs text-slate-400">Monthly revenue, last 6 months</p>
-                      </div>
-                    </div>
-                    <div ref={chartRef} className="flex items-end gap-2 sm:gap-4 h-64 px-1 sm:px-4 pt-6">
-                      {months.map((d) => {
-                        const pct = Math.round((d.revenue / max) * 100);
-                        return (
-                          <div key={`${d.year}-${d.month}`} className="flex-1 flex flex-col items-center gap-2 h-full justify-end">
-                            <span className="text-[10px] sm:text-[11px] font-mono text-slate-400">{compactMoney(d.revenue)}</span>
-                            <div className="w-full bg-white/[0.03] rounded-t-xl h-48 relative overflow-hidden flex items-end">
-                              <div
-                                className="analytics-bar w-full bg-gradient-to-t from-blue-700 via-blue-500 to-cyan-300 rounded-t-xl origin-bottom shadow-lg shadow-blue-500/20"
-                                style={{ height: `${d.revenue > 0 ? Math.max(3, pct) : 0}%`, transformOrigin: 'bottom' }}
-                              />
-                            </div>
-                            <span className="text-xs font-semibold text-slate-300">{d.month}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </GlassCard>
-                </div>
-
-                <GlassCard className="border-white/10 p-6">
-                  <h3 className="text-base font-bold text-white mb-1">Category Mix</h3>
-                  <p className="text-xs text-slate-400 mb-6">Revenue share by category</p>
-                  <div className="space-y-4">
-                    {data.categoryMix.length === 0 && <p className="text-xs text-slate-400">No sales yet.</p>}
-                    {data.categoryMix.slice(0, 6).map((cat) => (
-                      <div key={cat.name} className="space-y-1.5">
-                        <div className="flex justify-between text-xs font-semibold">
-                          <span className="text-slate-300">{cat.name}</span>
-                          <span className="text-white font-bold">{cat.share}%</span>
-                        </div>
-                        <div className="w-full bg-white/5 rounded-full h-2.5 overflow-hidden">
-                          <div className="h-full rounded-full" style={{ width: `${cat.share}%`, background: cat.color }} />
-                        </div>
-                      </div>
-                    ))}
+              <section className="card" aria-labelledby="an-pipeline">
+                <div className="card-header">
+                  <div>
+                    <h2 id="an-pipeline" className="card-title">Order pipeline</h2>
+                    <p className="card-subtitle">Orders by status · {statusTotal} total</p>
                   </div>
-                  {topCategory && (
-                    <div className="mt-8 p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300">
-                      <p className="font-bold flex items-center gap-1.5 mb-1">
-                        <Award size={15} /> Leading category
-                      </p>
-                      {topCategory.name} brings in {topCategory.share}% of revenue ({usd(topCategory.revenue)}).
+                </div>
+                <div className="p-5">
+                  {statusTotal > 0 && (
+                    <div className="flex h-2.5 rounded-full overflow-hidden bg-white/5 mb-5" aria-hidden="true">
+                      {Object.entries(data.orderStatus).map(([status, count]) =>
+                        count > 0 ? <span key={status} className={pipelineColor[status]} style={{ width: `${(count / statusTotal) * 100}%` }} /> : null
+                      )}
                     </div>
                   )}
-                </GlassCard>
-              </div>
-
-              <GlassCard className="border-white/10 p-6">
-                <h3 className="text-base font-bold text-white mb-1">Order Pipeline</h3>
-                <p className="text-xs text-slate-400 mb-5">Orders by status ({statusTotal} total)</p>
-                <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
-                  {Object.entries(data.orderStatus).map(([status, count]) => (
-                    <div key={status} className="space-y-1.5">
-                      <div className="flex justify-between text-xs font-semibold">
-                        <span className="text-slate-300 capitalize">{status}</span>
-                        <span className="text-white font-bold">{count}</span>
-                      </div>
-                      <div className="w-full bg-white/5 rounded-full h-2.5 overflow-hidden">
-                        <div className={`h-full rounded-full bg-gradient-to-r ${statusColors[status]}`} style={{ width: `${statusTotal ? Math.round((count / statusTotal) * 100) : 0}%` }} />
-                      </div>
-                    </div>
-                  ))}
+                  <ul className="grid grid-cols-2 sm:grid-cols-5 gap-x-6 gap-y-4">
+                    {Object.entries(data.orderStatus).map(([status, count]) => (
+                      <li key={status}>
+                        <p className="flex items-center gap-2 text-sm text-ink-2">
+                          <span className={`w-2 h-2 rounded-full ${pipelineColor[status]}`} aria-hidden="true" />
+                          {orderStatus[status]?.label || status}
+                        </p>
+                        <p className="text-xl font-semibold text-ink tabular mt-0.5">{count}</p>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-              </GlassCard>
+              </section>
             </div>
           )}
         </SmartLoadingWrapper>
       </div>
-    </div>
+    </>
   );
 };
 

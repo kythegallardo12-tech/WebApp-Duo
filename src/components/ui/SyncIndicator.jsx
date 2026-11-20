@@ -1,10 +1,9 @@
-import { Cloud, CloudOff, WifiOff, ShieldAlert } from 'lucide-react';
+import { Check, CloudOff, WifiOff, ShieldAlert } from 'lucide-react';
 import useStore from '../../store/useStore';
 
 /**
  * Global save status for optimistic changes.
- * "Saved" is shown only after the server has confirmed every pending change.
- * No spinner: an unobtrusive pulsing dot marks work in progress.
+ * "All changes saved" appears only after the server has confirmed every pending change.
  */
 const SyncIndicator = () => {
   const sync = useStore((s) => s.sync);
@@ -12,8 +11,8 @@ const SyncIndicator = () => {
 
   if (sync.inFlight > 0) {
     return (
-      <div className="flex items-center gap-2 text-[var(--color-text-secondary)] text-xs" role="status" aria-live="polite" data-testid="sync-status">
-        <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" aria-hidden="true" />
+      <div className="flex items-center gap-2 text-xs text-ink-2" role="status" aria-live="polite" data-testid="sync-status">
+        <span className="w-1.5 h-1.5 rounded-full bg-accent" aria-hidden="true" />
         <span>Saving…</span>
       </div>
     );
@@ -29,14 +28,15 @@ const SyncIndicator = () => {
     }[sync.error.kind] || 'Not saved';
     return (
       <button
+        type="button"
         onClick={clear}
-        title={sync.error.message}
-        className="flex items-center gap-2 text-rose-400 text-xs hover:text-rose-300"
+        title={`${sync.error.message} (click to dismiss)`}
+        className="flex items-center gap-1.5 text-xs font-medium text-danger rounded-md px-1.5 py-1 hover:bg-danger-soft"
         role="status"
         aria-live="polite"
         data-testid="sync-status"
       >
-        <Icon size={14} />
+        <Icon size={14} aria-hidden="true" />
         <span>{label}</span>
       </button>
     );
@@ -44,8 +44,8 @@ const SyncIndicator = () => {
 
   if (sync.lastSavedAt) {
     return (
-      <div className="flex items-center gap-2 text-emerald-400/70 text-xs" role="status" aria-live="polite" data-testid="sync-status">
-        <Cloud size={14} />
+      <div className="flex items-center gap-1.5 text-xs text-ink-3" role="status" aria-live="polite" data-testid="sync-status">
+        <Check size={14} className="text-success" aria-hidden="true" />
         <span>All changes saved</span>
       </div>
     );

@@ -1,10 +1,15 @@
 /**
- * Capture README screenshots from the running e2e server (test fixtures only):
+ * Capture screenshots from the running e2e server (test fixtures only):
  *   npm run build && node server/scripts/e2e-server.js   # terminal 1
  *   node server/scripts/screenshots.js                   # terminal 2
  *
- * Writes docs/screenshots/*.png and docs/screenshots/collections.png, a rendered view of the
- * MongoDB collections with password hashes and session data removed.
+ * Writes:
+ *  - docs/screenshots/*.png, used by the README
+ *  - docs/screenshots/collections.png, a rendered view of the MongoDB collections with
+ *    password hashes and session data removed
+ *  - public/product/*.jpg, the product images on the public landing page (sample data)
+ *
+ * Run it twice when the UI changes: the landing page shows the images from the previous run.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,23 +17,67 @@ import { chromium } from '@playwright/test';
 
 const base = process.env.E2E_URL || 'http://localhost:4173';
 const out = path.resolve('docs/screenshots');
+const productOut = path.resolve('public/product');
 fs.mkdirSync(out, { recursive: true });
+fs.mkdirSync(productOut, { recursive: true });
 
 await fetch(`${base}/__e2e/reset`, { method: 'POST' });
 
 const browser = await chromium.launch();
+
+async function signIn(page, who = 'admin') {
+  await page.goto(`${base}/signin`);
+  await page.getByLabel('Email').fill(`${who}@e2e.test`);
+  await page.getByLabel('Password', { exact: true }).fill(`e2e-${who}-password-123`);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByTestId('account-menu').waitFor();
+}
+
+// ── Landing page product images (1440×900 at 1.5×, JPEG) ──
+{
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1.5, colorScheme: 'dark' });
+  const page = await ctx.newPage();
+  await signIn(page);
+  const product = async (name, url, ready) => {
+    await page.goto(`${base}${url}`);
+    await ready();
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: path.join(productOut, `${name}.jpg`), type: 'jpeg', quality: 86 });
+    console.log('saved product', name);
+  };
+  await product('dashboard', '/app', () => page.getByTestId('dashboard-stats').waitFor());
+  await product('inventory', '/app/inventory', () => page.getByTestId('inventory-row').first().waitFor());
+  await product('orders', '/app/orders', () => page.getByTestId('order-row').first().waitFor());
+  await ctx.close();
+
+  const mctx = await browser.newContext({ viewport: { width: 390, height: 760 }, deviceScaleFactor: 2, colorScheme: 'dark', isMobile: true, hasTouch: true });
+  const m = await mctx.newPage();
+  await signIn(m);
+  await m.goto(`${base}/app`);
+  await m.getByTestId('dashboard-stats').waitFor();
+  await m.waitForTimeout(400);
+  await m.screenshot({ path: path.join(productOut, 'dashboard-mobile.jpg'), type: 'jpeg', quality: 86 });
+  console.log('saved product dashboard-mobile');
+  await mctx.close();
+}
+
+// ── README screenshots ──
 const desktop = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: 'dark' });
 const page = await desktop.newPage();
 const shot = async (name, opts = {}) => {
-  await page.waitForTimeout(1600); // let GSAP entrance animations finish
+  await page.waitForTimeout(500);
   await page.screenshot({ path: path.join(out, `${name}.png`), ...opts });
   console.log('saved', name);
 };
 
 await page.goto(base);
+await shot('landing');
+
+await page.goto(`${base}/signin`);
 await page.getByLabel('Email').fill('admin@e2e.test');
 await shot('login');
-await page.getByLabel('Password').fill('e2e-admin-password-123');
+await page.getByLabel('Password', { exact: true }).fill('e2e-admin-password-123');
 await page.getByRole('button', { name: 'Sign in' }).click();
 await page.getByTestId('dashboard-stats').waitFor();
 await shot('dashboard');
@@ -48,21 +97,21 @@ await page.keyboard.press('Escape');
 
 await page.getByRole('link', { name: 'Orders' }).click();
 await page.getByTestId('order-row').first().waitFor();
-await page.getByRole('button', { name: 'New Order' }).click();
-await page.getByLabel('Customer Full Name').fill('Sample Customer');
-await page.getByLabel('Customer Email').fill('customer@example.com');
-await page.getByLabel('Delivery Address').fill('12 Example Street');
+await page.getByRole('button', { name: 'New order' }).click();
+await page.getByLabel('Customer name').fill('Sample Customer');
+await page.getByLabel('Customer email').fill('customer@example.com');
+await page.getByLabel('Delivery address').fill('12 Example Street');
 await page.getByLabel('Product for line 1').selectOption({ label: 'Smart Watch Pro — $299.99 (75 in stock)' });
 await page.getByRole('button', { name: 'Add item' }).click();
 await page.getByLabel('Product for line 2').selectOption({ label: 'Artisan Coffee Beans — $19.99 (300 in stock)' });
 await page.getByLabel('Quantity for line 2').fill('2');
 await shot('order-create');
-await page.getByRole('button', { name: 'Create Order' }).click();
+await page.getByRole('button', { name: 'Create order' }).click();
 await page.getByText('Order created').waitFor();
 await shot('orders');
 
 await page.getByRole('link', { name: 'Analytics' }).click();
-await page.getByText('Average Order Value').waitFor();
+await page.getByText('Average order value').waitFor();
 await shot('analytics');
 
 await page.getByRole('link', { name: 'Settings' }).click();
@@ -72,17 +121,13 @@ await shot('settings');
 // Mobile
 const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 const m = await mobile.newPage();
-await m.goto(base);
-await m.getByLabel('Email').fill('staff@e2e.test');
-await m.getByLabel('Password').fill('e2e-staff-password-123');
-await m.getByRole('button', { name: 'Sign in' }).click();
-await m.getByRole('link', { name: 'Skip to content' }).waitFor({ state: 'attached' });
-await m.goto(`${base}/inventory`);
+await signIn(m, 'staff');
+await m.goto(`${base}/app/inventory`);
 await m.getByTestId('inventory-row').first().waitFor();
-await m.waitForTimeout(1600);
+await m.waitForTimeout(500);
 await m.screenshot({ path: path.join(out, 'mobile-inventory.png') });
 await m.getByRole('button', { name: 'Open navigation' }).click();
-await m.waitForTimeout(600);
+await m.waitForTimeout(500);
 await m.screenshot({ path: path.join(out, 'mobile-nav.png') });
 console.log('saved mobile');
 
