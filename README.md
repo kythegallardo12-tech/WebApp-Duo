@@ -1,14 +1,20 @@
 # StockFlow Pro — MERN Inventory & Order Management
 
-StockFlow Pro is a small-business inventory and order workspace. The React front end (navy glassmorphism, GSAP, Lenis, React Bits–style cards, sheets and confirmation modals) talks to an Express API backed by MongoDB. Products, stock, orders and business settings live in the database. The browser keeps only harmless interface preferences.
+StockFlow is a small-business inventory and order workspace. The React front end (a restrained navy-and-blue interface with a text-only wordmark, native scrolling, accessible sheets and dialogs) talks to an Express API backed by MongoDB. Products, stock, orders and business settings live in the database. The browser keeps only harmless interface preferences.
 
 ![Dashboard](docs/screenshots/dashboard.png)
+
+| Route | What it is |
+| --- | --- |
+| `/` | Public landing page (also reachable when signed in) |
+| `/signin` | Sign-in. After signing in you return to the workspace page you asked for. |
+| `/app`, `/app/products`, `/app/inventory`, `/app/orders`, `/app/analytics`, `/app/settings` | The workspace (requires a session). The old `/products`, `/inventory`, … links redirect here. |
 
 | Products | Orders | Mobile |
 | --- | --- | --- |
 | ![Products](docs/screenshots/products.png) | ![Orders](docs/screenshots/orders.png) | ![Mobile inventory](docs/screenshots/mobile-inventory.png) |
 
-More screenshots are in [`docs/screenshots/`](docs/screenshots/), including the login screen, stock history, analytics, settings, and the [MongoDB collections](docs/screenshots/collections.png) (test data, with password hashes and session contents removed).
+More screenshots are in [`docs/screenshots/`](docs/screenshots/), including the landing page, the sign-in screen, stock history, analytics, settings, and the [MongoDB collections](docs/screenshots/collections.png) (test data, with password hashes and session contents removed).
 
 ---
 
@@ -24,7 +30,7 @@ More screenshots are in [`docs/screenshots/`](docs/screenshots/), including the 
 
 ## Tech stack
 
-React 19 + Vite 8 · Tailwind CSS 4 · GSAP · Lenis · Zustand · Node.js ≥ 20.19 · Express 5 · MongoDB 7 + Mongoose 8 · express-session + connect-mongo · bcryptjs · zod · helmet · express-rate-limit · Playwright · node:test + supertest + mongodb-memory-server.
+React 19 + Vite 8 · Tailwind CSS 4 · Zustand · Node.js ≥ 20.19 · Express 5 · MongoDB 7 + Mongoose 8 · express-session + connect-mongo · bcryptjs · zod · helmet · express-rate-limit · Playwright · node:test + supertest + mongodb-memory-server.
 
 ```
 server/
@@ -43,7 +49,9 @@ server/
 src/
   api/client.js       fetch wrapper (CSRF, idempotency keys, error kinds, retries)
   store/              useAuth (session), useStore (data + optimistic mutation tracking)
-  pages/              Login, Dashboard, Products, Inventory, Orders, Analytics, Settings
+  pages/              Landing, SignIn, Dashboard, Products, Inventory, Orders, Analytics, Settings
+  components/ui/      Dialog (native <dialog>: Modal, Sheet), toasts, loading states
+  lib/                routes (incl. the post-sign-in redirect guard), scrollLock
 tests/workspace.spec.js  Playwright end-to-end tests
 ```
 
@@ -121,7 +129,7 @@ This loads 7 categories, 10 products and 6 historical orders. It is safe to run 
 npm run dev
 ```
 
-This starts the API (`node --watch`, port 4000) and Vite (port 5173) together. Open <http://localhost:5173>. Vite forwards `/api` to Express, so the browser sees a single origin.
+This starts the API (`node --watch`, port 4000) and Vite (port 5173) together. Open <http://localhost:5173> for the landing page, or <http://localhost:5173/signin> to sign in. Vite forwards `/api` to Express, so the browser sees a single origin.
 
 ---
 
@@ -297,3 +305,10 @@ Academic project.
 ## Client integrity regressions
 
 `npm run test:unit` exercises the production workspace store with controlled response timing: reversed stock commits, stale reads, list boundaries, cache-miss actions, failed page loads, and sign-out during requests. The browser suite also covers remote product edits, password-reset revocation, currency formatting and the low-stock alert preference. Successful stock mutations reconcile the last pending operation with server state; older authentication generations cannot repopulate the store or retry writes under a new session.
+
+## Interface notes
+
+- **Scrolling is the browser's own.** The app used to run Lenis smooth scrolling over the whole page, which intercepted wheel input and replayed it over 1.2 s (and fought `html { scroll-behavior: smooth }`). It is removed; `node scripts/scroll-probe.mjs` measures wheel-to-scroll latency against the e2e server.
+- **Dialogs and sheets** use the native `<dialog>` element: the page behind is inert, Escape closes, focus returns to the control that opened it, and a reference-counted scroll lock (`src/lib/scrollLock.js`) is always released.
+- **Design tokens** live in `src/index.css` (`@theme`): navy canvas `#0a0e1a`, surfaces `#111827` / `#1a2236`, accent `#3b82f6`. Filled buttons use `#2563eb` so white labels meet WCAG AA. System fonts only.
+- **Landing page images** in `public/product/` are screenshots of the workspace with the e2e sample data, produced by `node server/scripts/screenshots.js`.

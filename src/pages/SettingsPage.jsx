@@ -1,10 +1,8 @@
 import { useState, useCallback } from 'react';
-import { Database, ShieldCheck, CheckCircle2, Users, UploadCloud, RotateCcw, Sliders, Building2, UserPlus, Info } from 'lucide-react';
-import GlassCard from '../components/ui/GlassCard';
-import SpotlightCard from '../components/reactbits/SpotlightCard';
+import { Check, Minus, UserPlus, AlertCircle, Info } from 'lucide-react';
+import Header from '../components/layout/Header';
 import Modal from '../components/ui/Modal';
 import Sheet from '../components/ui/Sheet';
-import Header from '../components/layout/Header';
 import SmartLoadingWrapper from '../components/ui/SmartLoadingWrapper';
 import { useSmartLoader } from '../hooks/useSmartLoader';
 import { api } from '../api/client';
@@ -13,12 +11,11 @@ import useAuth from '../store/useAuth';
 
 /**
  * Settings
- * 1. Workspace preferences (stored in this browser only — interface choices, no business data)
+ * 1. Preferences (this browser only — interface choices, no business data)
  * 2. Business settings (MongoDB; admins edit, staff read)
- * 3. Team & access (admins manage accounts; role matrix shown to everyone)
- * 4. Data tools: explicit import of data saved by the old browser-only version,
- *    and a development-only reset to sample data
- * 5. UX laws audit
+ * 3. Team (admins manage accounts) and the role matrix shown to everyone
+ * 4. Data tools: explicit import of data saved by the old browser-only version, and a
+ *    development-only reset to sample data
  */
 
 const LEGACY_KEYS = ['stockflow-storage', 'webapp-duo-workspace-v1'];
@@ -32,64 +29,7 @@ const ROLE_MATRIX = [
   ['Delete products', false, true],
   ['Manage users', false, true],
   ['Edit business settings', false, true],
-  ['Import browser data / reset sample data', false, true],
-];
-
-const uxLawsData = [
-  {
-    name: "Peak-End Rule",
-    concept: "Users judge experience largely at its peak and its final conclusion.",
-    implementation: "Highlight top metric spikes, celebrate order fulfilment with positive visual toasts.",
-    status: "Compliant",
-  },
-  {
-    name: "Miller's Law",
-    concept: "Working memory holds roughly 7 ± 2 discrete chunks of information.",
-    implementation: "Top-level navigation limited to 6 items; category taxonomy capped to 7 clean divisions.",
-    status: "Compliant",
-  },
-  {
-    name: "Hick's Law",
-    concept: "Time to make a decision increases logarithmically with number of choices.",
-    implementation: "Categorical filtering strictly streamlined; default sensible presets provided.",
-    status: "Compliant",
-  },
-  {
-    name: "Fitts' Law",
-    concept: "Target acquisition speed is a function of target distance and dimension.",
-    implementation: "Primary action buttons and quick stock adjustment controls sized with 44px+ hit targets.",
-    status: "Compliant",
-  },
-  {
-    name: "Law of Similarity",
-    concept: "Elements sharing visual characteristics are perceived to belong together.",
-    implementation: "Consistent glassmorphic card elevation, typography scales, and status badge chromatic hierarchy.",
-    status: "Compliant",
-  },
-  {
-    name: "Jakob's Law",
-    concept: "Users expect your system to work like all the other systems they know.",
-    implementation: "Standard left-docked collapsible sidebar, top global search header, and predictable data tables.",
-    status: "Compliant",
-  },
-  {
-    name: "Aesthetic-Usability Effect",
-    concept: "Users perceive more attractive design as substantially easier to operate.",
-    implementation: "Deep navy glassmorphism, GSAP micro-animations, and React Bits spotlight reflections.",
-    status: "Compliant",
-  },
-  {
-    name: "Occam's Razor",
-    concept: "Entities should not be multiplied beyond operational necessity.",
-    implementation: "Forms omit redundant secondary telemetry; sheets reveal contextual details on demand.",
-    status: "Compliant",
-  },
-  {
-    name: "Modal vs. Sheet Heuristic",
-    concept: "Modals interrupt for critical binary decisions; Sheets expand for deep multi-step editing.",
-    implementation: "Delete confirmations strictly in centered Modals; edit forms cleanly docked in side Sheets.",
-    status: "Compliant",
-  },
+  ['Import browser data, reset sample data', false, true],
 ];
 
 function readLegacy() {
@@ -109,6 +49,22 @@ function readLegacy() {
   }
   return found;
 }
+
+/** A settings group: heading and description above, content in a card. */
+const Section = ({ id, title, description, action, children, flush = false }) => (
+  <section aria-labelledby={id} className="space-y-3">
+    <div className="flex items-end justify-between gap-4">
+      <div>
+        <h2 id={id} className="text-base font-semibold tracking-[-0.01em] text-ink">
+          {title}
+        </h2>
+        {description && <p className="text-sm text-ink-3 mt-0.5">{description}</p>}
+      </div>
+      {action}
+    </div>
+    <div className={`card ${flush ? 'overflow-hidden' : 'p-5'}`}>{children}</div>
+  </section>
+);
 
 const BusinessSettings = ({ canEdit }) => {
   const settings = useStore((s) => s.settings);
@@ -140,37 +96,47 @@ const BusinessSettings = ({ canEdit }) => {
   };
 
   return (
-    <GlassCard className="p-6 border-white/10">
-      <h3 className="text-base font-bold text-white flex items-center gap-2 mb-1">
-        <Building2 size={18} className="text-blue-400" /> Business Settings
-      </h3>
-      <p className="text-xs text-slate-400 mb-5">{canEdit ? 'Shared by everyone in this workspace.' : 'Only admins can change these.'}</p>
+    <Section id="settings-business" title="Business" description={canEdit ? 'Shared by everyone in this workspace.' : 'Only admins can change these.'}>
       <SmartLoadingWrapper loadingState={settings ? 'done' : loadingState} error={error} onRetry={refetch} skeletonType="card" skeletonCount={1}>
         {form && (
-          <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-4" noValidate>
+          <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-5" noValidate aria-busy={saving}>
             <fieldset disabled={!canEdit || saving} className="contents">
               <div className="sm:col-span-2">
-                <label htmlFor="biz-name" className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Business name</label>
-                <input id="biz-name" className="glass-input text-sm" value={form.businessName} onChange={(e) => setForm({ ...form, businessName: e.target.value })} maxLength={80} />
+                <label htmlFor="biz-name" className="field-label">
+                  Business name
+                </label>
+                <input id="biz-name" className="input" value={form.businessName} onChange={(e) => setForm({ ...form, businessName: e.target.value })} maxLength={80} autoComplete="organization" />
               </div>
               <div>
-                <label htmlFor="biz-currency" className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Currency code</label>
-                <input id="biz-currency" className="glass-input text-sm uppercase" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} maxLength={3} />
-                <p className="text-[11px] text-slate-500 mt-1">Changes the currency label across the workspace. Existing amounts are not converted.</p>
+                <label htmlFor="biz-currency" className="field-label">
+                  Currency code
+                </label>
+                <input id="biz-currency" className="input uppercase" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} maxLength={3} aria-describedby="biz-currency-hint" spellCheck={false} />
+                <p id="biz-currency-hint" className="field-hint">
+                  Changes how amounts are labelled. Existing amounts are not converted.
+                </p>
               </div>
               <div>
-                <label htmlFor="biz-min" className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Default low-stock threshold</label>
-                <input id="biz-min" type="number" min="0" step="1" className="glass-input text-sm" value={form.defaultMinStock} onChange={(e) => setForm({ ...form, defaultMinStock: e.target.value })} />
+                <label htmlFor="biz-min" className="field-label">
+                  Default low-stock threshold
+                </label>
+                <input id="biz-min" type="number" min="0" step="1" inputMode="numeric" className="input tabular" value={form.defaultMinStock} onChange={(e) => setForm({ ...form, defaultMinStock: e.target.value })} />
+                <p className="field-hint">Used for new products.</p>
               </div>
-              <label className="sm:col-span-2 flex items-center gap-3 text-sm text-slate-300">
-                <input type="checkbox" checked={form.lowStockAlerts} onChange={(e) => setForm({ ...form, lowStockAlerts: e.target.checked })} className="w-4 h-4 accent-blue-500" />
+              <label className="sm:col-span-2 flex items-center gap-3 text-sm text-ink cursor-pointer">
+                <input type="checkbox" className="checkbox" checked={form.lowStockAlerts} onChange={(e) => setForm({ ...form, lowStockAlerts: e.target.checked })} />
                 Show low-stock alerts on the inventory page
               </label>
             </fieldset>
-            {formError && <p className="sm:col-span-2 text-xs text-rose-400" role="alert">{formError}</p>}
+            {formError && (
+              <p className="sm:col-span-2 field-error mt-0" role="alert">
+                <AlertCircle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+                {formError}
+              </p>
+            )}
             {canEdit && (
-              <div className="sm:col-span-2">
-                <button type="submit" disabled={saving} className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-60">
+              <div className="sm:col-span-2 flex justify-end pt-4 border-t border-line">
+                <button type="submit" disabled={saving} aria-busy={saving} className="btn btn-primary">
                   {saving ? 'Saving…' : 'Save settings'}
                 </button>
               </div>
@@ -178,9 +144,11 @@ const BusinessSettings = ({ canEdit }) => {
           </form>
         )}
       </SmartLoadingWrapper>
-    </GlassCard>
+    </Section>
   );
 };
+
+const emptyUser = () => ({ name: '', email: '', role: 'staff', password: '' });
 
 const TeamManager = () => {
   const me = useAuth((s) => s.user);
@@ -188,8 +156,9 @@ const TeamManager = () => {
   const fetchUsers = useCallback(() => api.users(), []);
   const { data, setData, loadingState, error, refetch } = useSmartLoader(fetchUsers, []);
   const [sheet, setSheet] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', role: 'staff', password: '' });
+  const [form, setForm] = useState(emptyUser);
   const [formError, setFormError] = useState(null);
+  const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(null);
 
   const update = async (user, patch) => {
@@ -207,56 +176,74 @@ const TeamManager = () => {
 
   const create = async (e) => {
     e.preventDefault();
+    if (creating) return;
     setFormError(null);
+    setCreating(true);
     try {
       const { user } = await api.createUser(form);
       setData((d) => ({ items: [...(d?.items || []), user] }));
       setSheet(false);
-      setForm({ name: '', email: '', role: 'staff', password: '' });
+      setForm(emptyUser());
       addToast({ type: 'success', title: 'User created', message: `${user.name} can now sign in.` });
     } catch (err) {
       setFormError(err.message);
+    } finally {
+      setCreating(false);
     }
   };
 
   return (
-    <GlassCard padding="p-0" className="border-white/10 overflow-hidden">
-      <div className="p-6 border-b border-white/10 flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h3 className="text-base font-bold text-white flex items-center gap-2"><Users size={18} className="text-blue-400" /> Team</h3>
-          <p className="text-xs text-slate-400 mt-0.5">Accounts are created here by an admin. There is no public sign-up.</p>
-        </div>
-        <button onClick={() => setSheet(true)} className="btn-primary px-4 py-2.5 text-sm font-semibold"><UserPlus size={16} /> Add user</button>
-      </div>
+    <Section
+      id="settings-team"
+      title="Team"
+      description="Accounts are created here by an admin. There is no public sign-up."
+      flush
+      action={
+        <button type="button" onClick={() => setSheet(true)} className="btn btn-secondary btn-sm shrink-0">
+          <UserPlus size={15} aria-hidden="true" /> Add user
+        </button>
+      }
+    >
       <SmartLoadingWrapper loadingState={loadingState} error={error} onRetry={refetch} skeletonType="table" skeletonCount={3}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+        <div className="table-wrap">
+          <table className="table min-w-[38rem]">
             <thead>
-              <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-slate-400">
-                <th className="px-6 py-3 font-semibold">User</th>
-                <th className="px-6 py-3 font-semibold">Role</th>
-                <th className="px-6 py-3 font-semibold">Status</th>
-                <th className="px-6 py-3 font-semibold">Last sign-in</th>
+              <tr>
+                <th scope="col">User</th>
+                <th scope="col">Role</th>
+                <th scope="col">Status</th>
+                <th scope="col">Last sign-in</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/[0.03]">
+            <tbody>
               {(data?.items || []).map((u) => {
                 const self = u.id === me?.id;
                 return (
                   <tr key={u.id}>
-                    <td className="px-6 py-3"><p className="font-semibold text-white">{u.name}{self && <span className="text-xs text-slate-500"> (you)</span>}</p><p className="text-xs text-slate-400">{u.email}</p></td>
-                    <td className="px-6 py-3">
-                      <select aria-label={`Role for ${u.name}`} value={u.role} disabled={self || busy === u.id} onChange={(e) => update(u, { role: e.target.value })} className="glass-input text-xs h-9 w-28">
-                        <option value="staff" className="bg-slate-900">Staff</option>
-                        <option value="admin" className="bg-slate-900">Admin</option>
+                    <td>
+                      <p className="font-medium text-ink">
+                        {u.name}
+                        {self && <span className="text-ink-3 font-normal"> (you)</span>}
+                      </p>
+                      <p className="text-xs text-ink-3">{u.email}</p>
+                    </td>
+                    <td>
+                      <select aria-label={`Role for ${u.name}`} value={u.role} disabled={self || busy === u.id} onChange={(e) => update(u, { role: e.target.value })} className="input h-9 w-28 text-[0.8125rem]">
+                        <option value="staff">Staff</option>
+                        <option value="admin">Admin</option>
                       </select>
                     </td>
-                    <td className="px-6 py-3">
-                      <button disabled={self || busy === u.id} onClick={() => update(u, { active: !u.active })} className={`text-[11px] px-2.5 py-1 rounded-full font-bold border ${u.active ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-400 border-white/10'} disabled:opacity-60`}>
-                        {u.active ? 'Active' : 'Deactivated'}
-                      </button>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <span className={`badge ${u.active ? 'badge-success' : ''}`}>{u.active ? 'Active' : 'Deactivated'}</span>
+                        {!self && (
+                          <button type="button" disabled={busy === u.id} onClick={() => update(u, { active: !u.active })} className="btn btn-ghost btn-sm" aria-label={`${u.active ? 'Deactivate' : 'Reactivate'} ${u.name}`}>
+                            {u.active ? 'Deactivate' : 'Reactivate'}
+                          </button>
+                        )}
+                      </div>
                     </td>
-                    <td className="px-6 py-3 text-xs text-slate-400">{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'}</td>
+                    <td className="text-ink-2 whitespace-nowrap">{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'}</td>
                   </tr>
                 );
               })}
@@ -265,26 +252,60 @@ const TeamManager = () => {
         </div>
       </SmartLoadingWrapper>
 
-      <Sheet isOpen={sheet} onClose={() => setSheet(false)} title="Add a team member">
-        <form onSubmit={create} className="space-y-4" noValidate>
-          {[['name', 'Full name', 'text'], ['email', 'Email', 'email'], ['password', 'Temporary password (min 10 characters)', 'password']].map(([k, label, type]) => (
+      <Sheet isOpen={sheet} onClose={() => setSheet(false)} title="Add a team member" width="28rem">
+        <form onSubmit={create} className="space-y-5" noValidate aria-busy={creating}>
+          {[
+            ['name', 'Full name', 'text', 'off'],
+            ['email', 'Email', 'email', 'off'],
+            ['password', 'Temporary password', 'password', 'new-password'],
+          ].map(([k, label, type, autoComplete], i) => (
             <div key={k}>
-              <label htmlFor={`user-${k}`} className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">{label}</label>
-              <input id={`user-${k}`} type={type} autoComplete={type === 'password' ? 'new-password' : 'off'} value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} className="glass-input text-sm" />
+              <label htmlFor={`user-${k}`} className="field-label">
+                {label}
+              </label>
+              <input
+                id={`user-${k}`}
+                type={type}
+                autoComplete={autoComplete}
+                value={form[k]}
+                onChange={(e) => setForm({ ...form, [k]: e.target.value })}
+                className="input"
+                aria-describedby={k === 'password' ? 'user-password-hint' : undefined}
+                {...(i === 0 ? { 'data-autofocus': true } : {})}
+              />
+              {k === 'password' && (
+                <p id="user-password-hint" className="field-hint">
+                  At least 10 characters. Share it privately; they can sign in with it straight away.
+                </p>
+              )}
             </div>
           ))}
           <div>
-            <label htmlFor="user-role" className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Role</label>
-            <select id="user-role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="glass-input text-sm">
-              <option value="staff" className="bg-slate-900">Staff — products, stock and orders</option>
-              <option value="admin" className="bg-slate-900">Admin — everything, including users and settings</option>
+            <label htmlFor="user-role" className="field-label">
+              Role
+            </label>
+            <select id="user-role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="input">
+              <option value="staff">Staff — products, stock and orders</option>
+              <option value="admin">Admin — everything, including users and settings</option>
             </select>
           </div>
-          {formError && <p className="text-xs text-rose-400" role="alert">{formError}</p>}
-          <button type="submit" className="btn-primary w-full justify-center py-3 text-sm font-bold">Create account</button>
+          {formError && (
+            <div className="banner banner-danger" role="alert">
+              <AlertCircle size={16} aria-hidden="true" />
+              <span>{formError}</span>
+            </div>
+          )}
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2.5 pt-5 border-t border-line">
+            <button type="button" onClick={() => setSheet(false)} className="btn btn-secondary">
+              Cancel
+            </button>
+            <button type="submit" disabled={creating} aria-busy={creating} className="btn btn-primary">
+              {creating ? 'Creating…' : 'Create account'}
+            </button>
+          </div>
         </form>
       </Sheet>
-    </GlassCard>
+    </Section>
   );
 };
 
@@ -346,57 +367,75 @@ const DataTools = ({ canImport, canReset }) => {
   if (!canImport && !canReset) return null;
 
   return (
-    <GlassCard className="p-6 border-white/10 space-y-5">
-      <div>
-        <h3 className="text-base font-bold text-white flex items-center gap-2"><Database size={18} className="text-blue-400" /> Data tools</h3>
-        <p className="text-xs text-slate-400 mt-0.5">Nothing here runs automatically.</p>
-      </div>
-
-      {canImport && (
-        <div className="space-y-3">
-          <h4 className="text-sm font-semibold text-white flex items-center gap-2"><UploadCloud size={15} /> Import data saved in this browser</h4>
-          {legacy.length === 0 ? (
-            <p className="text-xs text-slate-400">No data from the earlier browser-only version was found in this browser.</p>
-          ) : (
-            legacy.map((entry) => (
-              <div key={entry.key} className="p-4 rounded-xl bg-white/[0.03] border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm text-white font-mono">{entry.key}</p>
-                  <p className="text-xs text-slate-400">{entry.products} products · {entry.orders} orders{entry.imported ? ' · already imported' : ''}</p>
-                </div>
-                <div className="flex gap-2">
-                  {!entry.imported && (
-                    <button onClick={() => runImport(entry)} disabled={!!busy} className="btn-primary px-4 py-2 text-xs font-semibold disabled:opacity-60">
+    <Section id="settings-data" title="Data tools" description="Nothing here runs automatically." flush>
+      <div className="divide-y divide-line">
+        {canImport && (
+          <div className="p-5 space-y-3">
+            <h3 className="text-sm font-semibold text-ink">Import data saved in this browser</h3>
+            {legacy.length === 0 ? (
+              <p className="text-sm text-ink-3">No data from the earlier browser-only version was found in this browser.</p>
+            ) : (
+              legacy.map((entry) => (
+                <div key={entry.key} className="rounded-xl bg-raised border border-line p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-mono text-ink">{entry.key}</p>
+                    <p className="text-xs text-ink-3">
+                      {entry.products} products · {entry.orders} orders{entry.imported ? ' · already imported' : ''}
+                    </p>
+                  </div>
+                  {!entry.imported ? (
+                    <button type="button" onClick={() => runImport(entry)} disabled={!!busy} aria-busy={busy === entry.key} className="btn btn-primary btn-sm">
                       {busy === entry.key ? 'Importing…' : 'Import to database'}
                     </button>
-                  )}
-                  {entry.imported && (
-                    <button onClick={() => removeLocal(entry)} className="btn-ghost px-4 py-2 text-xs border border-white/10">Remove local copy</button>
+                  ) : (
+                    <button type="button" onClick={() => removeLocal(entry)} className="btn btn-secondary btn-sm">
+                      Remove local copy
+                    </button>
                   )}
                 </div>
-              </div>
-            ))
-          )}
-          <p className="text-[11px] text-slate-500 flex items-start gap-1.5"><Info size={12} className="mt-0.5 flex-shrink-0" />Products are matched by SKU and orders by their old id, so nothing is duplicated. Imported stock is the opening balance; imported orders do not deduct stock again. The local copy stays until you remove it.</p>
-        </div>
-      )}
+              ))
+            )}
+            <p className="text-xs text-ink-3 flex items-start gap-1.5">
+              <Info size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+              Products are matched by SKU and orders by their old id, so nothing is duplicated. Imported stock is the opening balance; imported orders do not deduct stock again. The local copy stays until you remove it.
+            </p>
+          </div>
+        )}
 
-      {canReset && (
-        <div className="pt-4 border-t border-white/5 space-y-2">
-          <h4 className="text-sm font-semibold text-white flex items-center gap-2"><RotateCcw size={15} /> Reset to sample data <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">development only</span></h4>
-          <p className="text-xs text-slate-400">Deletes all products, orders and stock history, then loads the sample catalog. User accounts are kept.</p>
-          <button onClick={() => setResetOpen(true)} disabled={!!busy} className="btn-danger px-4 py-2 text-xs font-semibold disabled:opacity-60">{busy === 'reset' ? 'Resetting…' : 'Reset workspace data'}</button>
-        </div>
-      )}
+        {canReset && (
+          <div className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-semibold text-ink flex items-center gap-2">
+                Reset to sample data <span className="badge badge-warning badge-plain">Development only</span>
+              </h3>
+              <p className="text-sm text-ink-3 mt-1">Deletes all products, orders and stock history, then loads the sample catalog. User accounts are kept.</p>
+            </div>
+            <button type="button" onClick={() => setResetOpen(true)} disabled={!!busy} className="btn btn-secondary btn-sm text-danger shrink-0">
+              {busy === 'reset' ? 'Resetting…' : 'Reset workspace data'}
+            </button>
+          </div>
+        )}
+      </div>
 
-      <Modal isOpen={resetOpen} onClose={() => setResetOpen(false)} title="Reset all business data?" size="sm">
-        <p className="text-sm text-slate-300 mb-6">Every product, order and stock movement will be deleted and replaced with sample data. This cannot be undone.</p>
-        <div className="flex gap-3">
-          <button onClick={() => setResetOpen(false)} className="btn-ghost flex-1 justify-center py-2.5 text-sm">Keep data</button>
-          <button onClick={runReset} className="btn-danger flex-1 justify-center py-2.5 text-sm font-bold">Reset</button>
-        </div>
+      <Modal
+        isOpen={resetOpen}
+        onClose={() => setResetOpen(false)}
+        title="Reset all business data?"
+        size="sm"
+        footer={
+          <>
+            <button type="button" onClick={() => setResetOpen(false)} className="btn btn-secondary" data-autofocus>
+              Keep data
+            </button>
+            <button type="button" onClick={runReset} className="btn btn-danger">
+              Reset
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink-2">Every product, order and stock movement will be deleted and replaced with sample data. This cannot be undone.</p>
       </Modal>
-    </GlassCard>
+    </Section>
   );
 };
 
@@ -410,92 +449,84 @@ const SettingsPage = () => {
   const toggleSidebar = useStore((s) => s.toggleSidebar);
 
   return (
-    <div>
-      <Header title="Settings" subtitle="Workspace preferences, business settings and team access" />
+    <>
+      <Header title="Settings" subtitle="Preferences, business details and team access" />
 
-      <div className="p-4 sm:p-6 space-y-8">
-        <SpotlightCard className="border-blue-500/30 p-6">
-          <h3 className="text-base font-bold text-white flex items-center gap-2 mb-1"><Sliders size={18} className="text-blue-400" /> Workspace preferences</h3>
-          <p className="text-xs text-slate-400 mb-5">Saved in this browser only. These never include business data.</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <span className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Default product layout</span>
-              <div className="flex gap-2" role="radiogroup" aria-label="Default product layout">
-                {['grid', 'list'].map((v) => (
-                  <button key={v} role="radio" aria-checked={productView === v} onClick={() => setProductView(v)} className={`flex-1 py-2 rounded-xl text-xs font-bold border capitalize ${productView === v ? 'bg-blue-600 border-blue-400 text-white' : 'border-white/10 text-slate-400'}`}>
-                    {v === 'list' ? 'Table' : 'Grid'}
+      <div className="mx-auto w-full max-w-[52rem] px-4 sm:px-6 lg:px-8 py-6 space-y-10">
+        <Section id="settings-prefs" title="Preferences" description="Saved in this browser only.">
+          <div className="space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <span id="pref-layout" className="text-sm text-ink">
+                Product layout
+              </span>
+              <div className="segmented" role="radiogroup" aria-labelledby="pref-layout">
+                {[
+                  ['grid', 'Grid'],
+                  ['list', 'Table'],
+                ].map(([v, label]) => (
+                  <button key={v} type="button" role="radio" aria-checked={productView === v} onClick={() => setProductView(v)} className="min-w-[5rem]">
+                    {label}
                   </button>
                 ))}
               </div>
             </div>
-            <label className="flex items-center gap-3 text-sm text-slate-300 sm:mt-6">
-              <input type="checkbox" checked={sidebarOpen} onChange={toggleSidebar} className="w-4 h-4 accent-blue-500" />
-              Expanded sidebar on large screens
+            <label className="hidden lg:flex items-center justify-between gap-3 pt-5 border-t border-line text-sm text-ink cursor-pointer">
+              Show sidebar labels
+              <input type="checkbox" className="checkbox" checked={sidebarOpen} onChange={toggleSidebar} />
             </label>
           </div>
-        </SpotlightCard>
+        </Section>
 
         <BusinessSettings canEdit={can('settings:write')} />
 
         {can('users:manage') && <TeamManager />}
 
-        <GlassCard padding="p-0" className="border-white/10 overflow-hidden">
-          <div className="p-6 border-b border-white/10">
-            <h3 className="text-base font-bold text-white flex items-center gap-2"><ShieldCheck size={18} className="text-emerald-400" /> Roles & permissions</h3>
-            <p className="text-xs text-slate-400 mt-0.5">You are signed in as <strong className="text-white">{user?.role}</strong>. These rules are enforced by the server.</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm" data-testid="role-matrix">
+        <Section
+          id="settings-roles"
+          title="Roles and permissions"
+          description={
+            <>
+              You are signed in as <strong className="font-medium text-ink capitalize">{user?.role}</strong>. The server enforces these rules.
+            </>
+          }
+          flush
+        >
+          <div className="table-wrap">
+            <table className="table min-w-[30rem]" data-testid="role-matrix">
               <thead>
-                <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-slate-400">
-                  <th className="px-6 py-3 font-semibold">Capability</th>
-                  <th className="px-6 py-3 font-semibold text-center">Staff</th>
-                  <th className="px-6 py-3 font-semibold text-center">Admin</th>
+                <tr>
+                  <th scope="col">Capability</th>
+                  <th scope="col" className="text-center w-24">
+                    Staff
+                  </th>
+                  <th scope="col" className="text-center w-24">
+                    Admin
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/[0.03]">
+              <tbody>
                 {ROLE_MATRIX.map(([label, staff, admin]) => (
                   <tr key={label}>
-                    <td className="px-6 py-3 text-slate-300">{label}</td>
-                    <td className="px-6 py-3 text-center">{staff ? <CheckCircle2 size={15} className="inline text-emerald-400" aria-label="Allowed" /> : <span className="text-slate-600" aria-label="Not allowed">—</span>}</td>
-                    <td className="px-6 py-3 text-center">{admin ? <CheckCircle2 size={15} className="inline text-emerald-400" aria-label="Allowed" /> : <span className="text-slate-600" aria-label="Not allowed">—</span>}</td>
+                    <td className="text-ink-2">{label}</td>
+                    {[staff, admin].map((ok, i) => (
+                      <td key={i} className="text-center">
+                        {ok ? (
+                          <Check size={16} className="inline text-success" aria-label="Allowed" />
+                        ) : (
+                          <Minus size={16} className="inline text-ink-3" aria-label="Not allowed" />
+                        )}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </GlassCard>
+        </Section>
 
         <DataTools canImport={can('data:import')} canReset={can('data:reset') && !!features?.devReset} />
-
-        <GlassCard padding="p-0" className="border-white/10 overflow-hidden">
-          <div className="p-6 border-b border-white/10 bg-white/[0.02]">
-            <h3 className="text-base font-bold text-white flex items-center gap-2"><ShieldCheck size={18} className="text-emerald-400" /> UX Laws & Human Factors</h3>
-            <p className="text-xs text-slate-400 mt-0.5">How the interface applies each design heuristic</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-white/10 bg-white/[0.01] text-xs uppercase tracking-wider text-slate-400">
-                  <th className="px-6 py-3.5 font-semibold">Heuristic</th>
-                  <th className="px-6 py-3.5 font-semibold">Principle</th>
-                  <th className="px-6 py-3.5 font-semibold">Implementation</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.03]">
-                {uxLawsData.map((law) => (
-                  <tr key={law.name} className="hover:bg-white/[0.02] transition-colors">
-                    <td className="px-6 py-4 font-bold text-white whitespace-nowrap">{law.name}</td>
-                    <td className="px-6 py-4 text-xs text-slate-400 max-w-xs">{law.concept}</td>
-                    <td className="px-6 py-4 text-xs text-slate-300 max-w-sm">{law.implementation}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </GlassCard>
       </div>
-    </div>
+    </>
   );
 };
 

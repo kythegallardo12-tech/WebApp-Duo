@@ -1,56 +1,105 @@
-import { useCurrency } from '../hooks/useCurrency';
 import { useState, useCallback } from 'react';
-import { AlertTriangle, Minus, Search, CheckCircle2, TrendingDown, Warehouse, History } from 'lucide-react';
-import GlassCard from '../components/ui/GlassCard';
-import SpotlightCard from '../components/reactbits/SpotlightCard';
+import { AlertTriangle, Minus, Search, History, SlidersHorizontal, AlertCircle } from 'lucide-react';
+import Header from '../components/layout/Header';
 import SmartLoadingWrapper from '../components/ui/SmartLoadingWrapper';
 import Modal from '../components/ui/Modal';
 import Sheet from '../components/ui/Sheet';
-import Header from '../components/layout/Header';
+import { Stat } from '../components/ui/Stat';
+import { PAGE } from '../components/ui/status';
 import { useSmartLoader } from '../hooks/useSmartLoader';
+import { useCurrency } from '../hooks/useCurrency';
+import { useCompact } from '../hooks/useMediaQuery';
 import { api } from '../api/client';
 import useStore from '../store/useStore';
 import useAuth from '../store/useAuth';
 
 /**
- * Inventory & Stock Adjustments
- * - Fitts' Law: single-tap -1 / +5 / +20 buttons
- * - Optimistic: the new level shows at once and is confirmed by the server
- *   (each tap is its own idempotent adjustment, so retries never double-apply)
- * - Every change is recorded with who made it, when and why (movement history)
+ * Inventory and stock adjustments
+ * - One-tap −1 / +5 / +20 buttons; each tap is its own idempotent adjustment, so retries never
+ *   double-apply. The new level shows at once and is confirmed by the server.
+ * - Every change is recorded with who made it, when and why (movement history).
  */
+
+const typeLabel = { initial: 'Opening stock', adjustment: 'Adjustment', order: 'Order', cancel: 'Cancellation' };
 
 const MovementHistory = ({ product }) => {
   const fetchMoves = useCallback(() => api.movements({ product: product.id, limit: 50 }), [product.id]);
   const { data, loadingState, error, refetch } = useSmartLoader(fetchMoves, [product.id]);
-  const typeLabel = { initial: 'Opening', adjustment: 'Adjustment', order: 'Order', cancel: 'Cancellation' };
   return (
     <SmartLoadingWrapper loadingState={loadingState} error={error} onRetry={refetch} skeletonType="table" skeletonCount={4} message="Loading stock history…">
-      <ul className="space-y-2" data-testid="movement-list">
+      <ol className="divide-y divide-line rounded-xl border border-line overflow-hidden" data-testid="movement-list">
         {(data?.items || []).map((m) => (
-          <li key={m.id} className="p-3 rounded-xl bg-white/[0.03] border border-white/5 flex items-start justify-between gap-3 text-sm">
+          <li key={m.id} className="flex items-start justify-between gap-4 p-3.5 bg-surface">
             <div className="min-w-0">
-              <p className="font-semibold text-white">
-                {typeLabel[m.type] || m.type}
-                <span className="text-xs font-normal text-slate-400"> · {new Date(m.createdAt).toLocaleString()}</span>
+              <p className="text-sm font-medium text-ink">{typeLabel[m.type] || m.type}</p>
+              <p className="text-sm text-ink-2 break-words">{m.reason || '—'}</p>
+              <p className="text-xs text-ink-3 mt-0.5">
+                {new Date(m.createdAt).toLocaleString()}
+                {m.actor?.name && ` · by ${m.actor.name}`}
               </p>
-              <p className="text-xs text-slate-400 truncate">{m.reason || '—'}</p>
-              {m.actor?.name && <p className="text-[11px] text-slate-500">by {m.actor.name}</p>}
             </div>
-            <div className="text-right flex-shrink-0">
-              <p className={`font-black ${m.delta > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            <div className="text-right shrink-0">
+              <p className={`text-sm font-semibold tabular ${m.delta > 0 ? 'text-success' : 'text-danger'}`}>
                 {m.delta > 0 ? '+' : ''}
                 {m.delta}
               </p>
-              <p className="text-[11px] text-slate-500">→ {m.stockAfter}</p>
+              <p className="text-xs text-ink-3 tabular">→ {m.stockAfter}</p>
             </div>
           </li>
         ))}
-        {data && data.items.length === 0 && <li className="text-sm text-slate-400">No stock movements recorded yet.</li>}
-      </ul>
+        {data && data.items.length === 0 && <li className="p-4 text-sm text-ink-3">No stock movements recorded yet.</li>}
+      </ol>
     </SmartLoadingWrapper>
   );
 };
+
+const StockLevel = ({ product: p }) => {
+  const pct = Math.min(100, Math.round((p.stock / (p.minStock * 2 || 20)) * 100));
+  const tone = p.stock === 0 ? 'bg-danger' : p.stock <= p.minStock ? 'bg-warning' : 'bg-success';
+  return (
+    <div className="space-y-1.5">
+      <span className="text-sm font-semibold text-ink tabular" data-testid="stock-value">
+        {p.stock} units
+      </span>
+      <div className="meter" aria-hidden="true">
+        <span className={tone} style={{ width: `${Math.max(4, pct)}%` }} />
+      </div>
+    </div>
+  );
+};
+
+const QuickAdjust = ({ product: p, disabled, onAdjust }) => (
+  <div className="inline-flex items-center gap-0.5 rounded-[10px] border border-line-strong bg-canvas p-0.5" role="group" aria-label={`Quick adjust ${p.name}`}>
+    <button type="button" onClick={() => onAdjust(p, -1)} disabled={p.stock === 0 || disabled} className="icon-btn w-9 h-8" aria-label={`Remove 1 unit of ${p.name}`} title="Remove 1">
+      <Minus size={14} />
+    </button>
+    <button type="button" onClick={() => onAdjust(p, 5)} disabled={disabled} className="icon-btn w-10 h-8 text-xs font-semibold text-ink" aria-label={`Add 5 units of ${p.name}`}>
+      +5
+    </button>
+    <button type="button" onClick={() => onAdjust(p, 20)} disabled={disabled} className="icon-btn w-10 h-8 text-xs font-semibold text-ink" aria-label={`Add 20 units of ${p.name}`}>
+      +20
+    </button>
+  </div>
+);
+
+const HistoryButton = ({ product: p, disabled, onClick }) => (
+  <button type="button" onClick={() => onClick(p)} disabled={disabled} className="icon-btn" aria-label={`Stock history for ${p.name}`} title="Stock history">
+    <History size={16} />
+  </button>
+);
+
+const AdjustButton = ({ product: p, disabled, onClick }) => (
+  <button type="button" onClick={() => onClick(p)} disabled={disabled} className="btn btn-secondary btn-sm">
+    <SlidersHorizontal size={14} aria-hidden="true" /> Adjust
+  </button>
+);
+
+const FILTERS = [
+  ['all', 'All'],
+  ['healthy', 'Healthy'],
+  ['low', 'Low'],
+  ['out', 'Out'],
+];
 
 const InventoryPage = () => {
   const { money } = useCurrency();
@@ -60,6 +109,7 @@ const InventoryPage = () => {
   const loadProducts = useStore((s) => s.loadProducts);
   const canAdjust = useAuth((s) => s.can)('inventory:adjust');
   const showAlerts = useStore((s) => s.settings?.lowStockAlerts !== false);
+  const compact = useCompact();
 
   const [search, setSearch] = useState('');
   const [stockFilter, setStockFilter] = useState('all');
@@ -77,10 +127,10 @@ const InventoryPage = () => {
   const handleAdjustSubmit = async (e) => {
     e.preventDefault();
     const amount = Number(adjustModal.amount);
-    if (!Number.isInteger(amount) || amount <= 0) return setFormError('Enter a whole number greater than 0.');
-    if (!adjustModal.reason.trim()) return setFormError('Give a reason so the change is traceable.');
+    if (!Number.isInteger(amount) || amount <= 0) return setFormError({ field: 'adj-amount', message: 'Enter a whole number greater than 0.' });
+    if (!adjustModal.reason.trim()) return setFormError({ field: 'adj-reason', message: 'Add a reason so the change can be traced later.' });
     const delta = adjustModal.direction === 'remove' ? -amount : amount;
-    if (adjustModal.product.stock + delta < 0) return setFormError(`Only ${adjustModal.product.stock} units are in stock.`);
+    if (adjustModal.product.stock + delta < 0) return setFormError({ field: 'adj-amount', message: `Only ${adjustModal.product.stock} units are in stock.` });
     const { product, reason } = adjustModal;
     setAdjustModal(null);
     setFormError(null);
@@ -94,6 +144,7 @@ const InventoryPage = () => {
   const lowStockItems = products.filter((p) => p.stock > 0 && p.stock <= p.minStock);
   const outOfStockItems = products.filter((p) => p.stock === 0);
   const healthyItems = products.filter((p) => p.stock > p.minStock);
+  const needsRestock = [...outOfStockItems, ...lowStockItems];
 
   const q = search.toLowerCase();
   const filteredProducts = products.filter((p) => {
@@ -104,176 +155,147 @@ const InventoryPage = () => {
     return true;
   });
 
+  const openAdjust = (p) => {
+    setFormError(null);
+    setAdjustModal({ product: p, amount: 50, direction: 'add', reason: 'Restock delivery' });
+  };
+
+  const fieldError = (id) => (formError?.field === id ? formError.message : null);
+
   return (
-    <div>
-      <Header title="Stock Logistics & Warehouse" subtitle="Live stock levels, low-stock alerts and recorded adjustments" />
+    <>
+      <Header title="Inventory" subtitle="Stock levels, adjustments and history" />
 
-      <div className="p-4 sm:p-6 space-y-6">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <SpotlightCard className="border-blue-500/20">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs uppercase font-semibold text-slate-400">Total Units</span>
-              <Warehouse size={18} className="text-blue-400" />
-            </div>
-            <p className="text-2xl sm:text-3xl font-black text-white">{totalStockUnits.toLocaleString()}</p>
-            <p className="text-[11px] text-slate-400 mt-1">Across the live catalog</p>
-          </SpotlightCard>
-          <GlassCard className="border-emerald-500/20">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs uppercase font-semibold text-slate-400">Healthy</span>
-              <CheckCircle2 size={18} className="text-emerald-400" />
-            </div>
-            <p className="text-2xl sm:text-3xl font-black text-emerald-400">{healthyItems.length}</p>
-            <p className="text-[11px] text-slate-400 mt-1">Above threshold</p>
-          </GlassCard>
-          <GlassCard className="border-amber-500/20">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs uppercase font-semibold text-slate-400">Low Stock</span>
-              <AlertTriangle size={18} className="text-amber-400" />
-            </div>
-            <p className="text-2xl sm:text-3xl font-black text-amber-400" data-testid="low-stock-count">{lowStockItems.length}</p>
-            <p className="text-[11px] text-slate-400 mt-1">At or below threshold</p>
-          </GlassCard>
-          <GlassCard className="border-rose-500/20">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs uppercase font-semibold text-slate-400">Out of Stock</span>
-              <TrendingDown size={18} className="text-rose-400" />
-            </div>
-            <p className="text-2xl sm:text-3xl font-black text-rose-400">{outOfStockItems.length}</p>
-            <p className="text-[11px] text-slate-400 mt-1">Needs replenishment</p>
-          </GlassCard>
-        </div>
+      <div className={PAGE}>
+        <section aria-label="Stock summary" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <Stat label="Units in stock" value={totalStockUnits.toLocaleString()} meta="Across the catalog" />
+          <Stat label="Healthy" value={healthyItems.length} tone="success" meta="Above threshold" />
+          <Stat label="Low stock" value={lowStockItems.length} tone="warning" meta="At or below threshold" valueTestId="low-stock-count" />
+          <Stat label="Out of stock" value={outOfStockItems.length} tone="danger" meta="Needs restocking" />
+        </section>
 
-        {showAlerts && lowStockItems.length + outOfStockItems.length > 0 && (
-          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-sm text-amber-200 flex items-start gap-3" role="status">
-            <AlertTriangle size={18} className="flex-shrink-0 mt-0.5" />
+        {showAlerts && needsRestock.length > 0 && (
+          <div className="banner banner-warning" role="status" data-testid="low-stock-alert">
+            <AlertTriangle size={16} aria-hidden="true" />
             <p>
-              <strong>Low-stock alert:</strong>{' '}
-              {[...outOfStockItems, ...lowStockItems].slice(0, 4).map((p) => p.name).join(', ')}
-              {lowStockItems.length + outOfStockItems.length > 4 ? ` and ${lowStockItems.length + outOfStockItems.length - 4} more` : ''} need restocking.
+              <strong className="font-semibold">Low-stock alert:</strong> {needsRestock.slice(0, 4).map((p) => p.name).join(', ')}
+              {needsRestock.length > 4 ? ` and ${needsRestock.length - 4} more` : ''} {needsRestock.length === 1 ? 'needs' : 'need'} restocking.
             </p>
           </div>
         )}
 
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-          <div className="relative flex-1 max-w-md">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 z-10 pointer-events-none text-slate-400" aria-hidden="true" />
-            <input type="search" aria-label="Search inventory" placeholder="Search inventory by title or SKU..." value={search} onChange={(e) => setSearch(e.target.value)} className="glass-input pl-10 text-sm h-11" />
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
+          <div className="search flex-1 sm:max-w-md">
+            <Search size={16} aria-hidden="true" />
+            <input type="search" aria-label="Search inventory" placeholder="Search by name or SKU" value={search} onChange={(e) => setSearch(e.target.value)} className="input" />
           </div>
-          <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="Stock filter">
-            {['all', 'healthy', 'low', 'out'].map((filterKey) => (
-              <button
-                key={filterKey}
-                onClick={() => setStockFilter(filterKey)}
-                aria-pressed={stockFilter === filterKey}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all border ${
-                  stockFilter === filterKey ? 'bg-blue-600 text-white border-blue-400 shadow-md' : 'bg-white/[0.03] text-slate-400 border-white/5 hover:text-white'
-                }`}
-              >
-                {filterKey}
+          <div className="segmented self-start" role="group" aria-label="Stock filter">
+            {FILTERS.map(([key, label]) => (
+              <button key={key} type="button" onClick={() => setStockFilter(key)} aria-pressed={stockFilter === key}>
+                {label}
               </button>
             ))}
           </div>
         </div>
 
         <SmartLoadingWrapper loadingState={loadingState} progress={progress} timeLeft={timeLeft} error={error} onRetry={refetch} skeletonType="table" skeletonCount={6} message="Loading stock levels…">
-          <GlassCard padding="p-0" className="border-white/10 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-white/10 bg-white/[0.02] text-xs uppercase tracking-wider text-slate-400">
-                    <th className="px-5 py-3.5 font-semibold">Product</th>
-                    <th className="px-5 py-3.5 font-semibold">SKU</th>
-                    <th className="px-5 py-3.5 font-semibold">Stock Level</th>
-                    <th className="px-5 py-3.5 font-semibold">Min Reserve</th>
-                    <th className="px-5 py-3.5 font-semibold text-center">Quick Adjust</th>
-                    <th className="px-5 py-3.5 font-semibold text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/[0.03]">
-                  {filteredProducts.map((p) => {
-                    const pct = Math.min(100, Math.round((p.stock / (p.minStock * 2 || 20)) * 100));
-                    const temp = p.id.startsWith('tmp-');
-                    return (
-                      <tr key={p.id} className="hover:bg-white/[0.02] transition-colors" data-testid="inventory-row" data-sku={p.sku}>
-                        <td className="px-5 py-4">
-                          <p className="font-bold text-white">{p.name}</p>
-                          <p className="text-xs text-slate-400">
-                            {money(p.price)} / unit
-                            {pending[p.id] && <span className="ml-2 text-blue-300">· saving…</span>}
+          <div className="card overflow-hidden">
+            {compact ? (
+              <ul className="divide-y divide-line">
+                {filteredProducts.map((p) => {
+                  const temp = p.id.startsWith('tmp-');
+                  return (
+                    <li key={p.id} className="p-4 space-y-3" data-testid="inventory-row" data-sku={p.sku}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium text-ink">{p.name}</p>
+                          <p className="text-xs text-ink-3">
+                            <span className="font-mono">{p.sku}</span> · {money(p.price)} each
+                            {pending[p.id] && <span className="ml-1.5 text-accent-ink">· saving…</span>}
                           </p>
-                        </td>
-                        <td className="px-5 py-4 font-mono text-xs text-blue-400">{p.sku}</td>
-                        <td className="px-5 py-4">
-                          <div className="space-y-1.5 w-32">
-                            <div className="flex justify-between text-xs">
-                              <span className="font-bold text-white" data-testid="stock-value">{p.stock} units</span>
-                              <span className="text-[10px] text-slate-400">{pct}%</span>
+                        </div>
+                        <HistoryButton product={p} disabled={temp} onClick={setHistoryFor} />
+                      </div>
+                      <StockLevel product={p} />
+                      <p className="text-xs text-ink-3">Low-stock threshold: {p.minStock}</p>
+                      {canAdjust && (
+                        <div className="flex items-center justify-between gap-2">
+                          <QuickAdjust product={p} disabled={temp} onAdjust={handleQuickAdjust} />
+                          <AdjustButton product={p} disabled={temp} onClick={openAdjust} />
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div className="table-wrap">
+                <table className="table min-w-[50rem]">
+                  <thead>
+                    <tr>
+                      <th scope="col">Product</th>
+                      <th scope="col">SKU</th>
+                      <th scope="col">Stock</th>
+                      <th scope="col" className="text-right">Threshold</th>
+                      <th scope="col">{canAdjust ? 'Quick adjust' : ''}</th>
+                      <th scope="col" className="text-right">
+                        <span className="sr-only">Actions</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredProducts.map((p) => {
+                      const temp = p.id.startsWith('tmp-');
+                      return (
+                        <tr key={p.id} data-testid="inventory-row" data-sku={p.sku}>
+                          <td>
+                            <p className="font-medium text-ink">{p.name}</p>
+                            <p className="text-xs text-ink-3">
+                              {money(p.price)} each
+                              {pending[p.id] && <span className="ml-1.5 text-accent-ink">· saving…</span>}
+                            </p>
+                          </td>
+                          <td className="font-mono text-xs text-ink-2 whitespace-nowrap">{p.sku}</td>
+                          <td>
+                            <div className="w-36">
+                              <StockLevel product={p} />
                             </div>
-                            <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all duration-300 ${p.stock === 0 ? 'bg-rose-500' : p.stock <= p.minStock ? 'bg-amber-400' : 'bg-emerald-400'}`}
-                                style={{ width: `${Math.max(5, pct)}%` }}
-                              />
+                          </td>
+                          <td className="text-right text-ink-2 tabular">{p.minStock}</td>
+                          <td>{canAdjust ? <QuickAdjust product={p} disabled={temp} onAdjust={handleQuickAdjust} /> : <span className="text-xs text-ink-3">View only</span>}</td>
+                          <td className="text-right whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1">
+                              <HistoryButton product={p} disabled={temp} onClick={setHistoryFor} />
+                              {canAdjust && <AdjustButton product={p} disabled={temp} onClick={openAdjust} />}
                             </div>
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 font-mono text-xs text-slate-400">{p.minStock}</td>
-                        <td className="px-5 py-4 text-center">
-                          {canAdjust ? (
-                            <div className="inline-flex items-center gap-1.5 bg-slate-900/60 p-1 rounded-xl border border-white/10">
-                              <button onClick={() => handleQuickAdjust(p, -1)} disabled={p.stock === 0 || temp} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-rose-600/30 text-rose-400 disabled:opacity-20 transition-colors" aria-label={`Remove 1 unit of ${p.name}`}>
-                                <Minus size={13} />
-                              </button>
-                              <button onClick={() => handleQuickAdjust(p, 5)} disabled={temp} className="px-2.5 h-8 rounded-lg flex items-center justify-center hover:bg-emerald-600/30 text-emerald-400 text-xs font-bold transition-colors disabled:opacity-20" aria-label={`Add 5 units of ${p.name}`}>
-                                +5
-                              </button>
-                              <button onClick={() => handleQuickAdjust(p, 20)} disabled={temp} className="px-2.5 h-8 rounded-lg flex items-center justify-center hover:bg-blue-600/30 text-blue-400 text-xs font-bold transition-colors disabled:opacity-20" aria-label={`Add 20 units of ${p.name}`}>
-                                +20
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-slate-500">View only</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-4 text-right whitespace-nowrap">
-                          <button onClick={() => setHistoryFor(p)} disabled={temp} className="p-2 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white disabled:opacity-30" aria-label={`Stock history for ${p.name}`} title="Stock history">
-                            <History size={15} />
-                          </button>
-                          {canAdjust && (
-                            <button
-                              onClick={() => {
-                                setFormError(null);
-                                setAdjustModal({ product: p, amount: 50, direction: 'add', reason: 'Restock PO' });
-                              }}
-                              disabled={temp}
-                              className="btn-ghost text-xs px-3 py-2 border border-white/10 hover:border-blue-500 hover:text-blue-400 disabled:opacity-30"
-                            >
-                              Adjust
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </GlassCard>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {filteredProducts.length === 0 && (
+              <div className="px-6 py-12 text-center">
+                <p className="text-sm font-medium text-ink">No products match</p>
+                <p className="text-sm text-ink-3 mt-1">Try another search or stock filter.</p>
+              </div>
+            )}
+          </div>
         </SmartLoadingWrapper>
       </div>
 
-      <Modal isOpen={!!adjustModal} onClose={() => setAdjustModal(null)} title="Stock Adjustment" size="md">
+      <Modal
+        isOpen={!!adjustModal}
+        onClose={() => setAdjustModal(null)}
+        title="Adjust stock"
+        description={adjustModal ? `${adjustModal.product.name} · ${adjustModal.product.stock} in stock` : undefined}
+        size="md"
+      >
         {adjustModal && (
-          <form onSubmit={handleAdjustSubmit} className="space-y-4" noValidate>
-            <div>
-              <p className="text-xs text-slate-400 uppercase font-semibold">Product</p>
-              <p className="text-base font-bold text-white mt-0.5">{adjustModal.product.name}</p>
-              <p className="text-xs font-mono text-blue-400">
-                {adjustModal.product.sku} · {adjustModal.product.stock} in stock
-              </p>
-            </div>
-            <div className="flex gap-2" role="radiogroup" aria-label="Direction">
+          <form onSubmit={handleAdjustSubmit} className="space-y-5" noValidate>
+            <div className="segmented w-full" role="radiogroup" aria-label="Direction">
               {[
                 ['add', 'Add stock'],
                 ['remove', 'Remove stock'],
@@ -284,45 +306,74 @@ const InventoryPage = () => {
                   role="radio"
                   aria-checked={adjustModal.direction === value}
                   onClick={() => setAdjustModal({ ...adjustModal, direction: value })}
-                  className={`flex-1 py-2 rounded-xl text-xs font-bold border ${adjustModal.direction === value ? 'bg-blue-600 border-blue-400 text-white' : 'border-white/10 text-slate-400'}`}
+                  className="flex-1"
                 >
                   {label}
                 </button>
               ))}
             </div>
             <div>
-              <label htmlFor="adj-amount" className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label htmlFor="adj-amount" className="field-label">
                 Units
               </label>
-              <input id="adj-amount" type="number" min="1" step="1" value={adjustModal.amount} onChange={(e) => setAdjustModal({ ...adjustModal, amount: e.target.value })} className="glass-input text-base font-black text-emerald-400" />
+              <input
+                id="adj-amount"
+                type="number"
+                min="1"
+                step="1"
+                inputMode="numeric"
+                value={adjustModal.amount}
+                onChange={(e) => setAdjustModal({ ...adjustModal, amount: e.target.value })}
+                className="input tabular"
+                aria-invalid={fieldError('adj-amount') ? true : undefined}
+                aria-describedby={fieldError('adj-amount') ? 'adj-amount-error' : undefined}
+                data-autofocus
+              />
+              {fieldError('adj-amount') && (
+                <p id="adj-amount-error" className="field-error" role="alert">
+                  <AlertCircle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+                  {fieldError('adj-amount')}
+                </p>
+              )}
             </div>
             <div>
-              <label htmlFor="adj-reason" className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+              <label htmlFor="adj-reason" className="field-label">
                 Reason
               </label>
-              <input id="adj-reason" type="text" maxLength={200} value={adjustModal.reason} onChange={(e) => setAdjustModal({ ...adjustModal, reason: e.target.value })} className="glass-input text-sm" placeholder="e.g. Supplier delivery, damaged goods, stock count" />
+              <input
+                id="adj-reason"
+                type="text"
+                maxLength={200}
+                value={adjustModal.reason}
+                onChange={(e) => setAdjustModal({ ...adjustModal, reason: e.target.value })}
+                className="input"
+                placeholder="e.g. Supplier delivery, damaged goods, stock count"
+                aria-invalid={fieldError('adj-reason') ? true : undefined}
+                aria-describedby={fieldError('adj-reason') ? 'adj-reason-error' : undefined}
+              />
+              {fieldError('adj-reason') && (
+                <p id="adj-reason-error" className="field-error" role="alert">
+                  <AlertCircle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+                  {fieldError('adj-reason')}
+                </p>
+              )}
             </div>
-            {formError && (
-              <p className="text-xs text-rose-400" role="alert">
-                {formError}
-              </p>
-            )}
-            <div className="flex gap-3 pt-3 border-t border-white/10">
-              <button type="button" onClick={() => setAdjustModal(null)} className="btn-ghost flex-1 py-3 text-sm justify-center">
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2.5 pt-5 border-t border-line">
+              <button type="button" onClick={() => setAdjustModal(null)} className="btn btn-secondary">
                 Cancel
               </button>
-              <button type="submit" className="btn-primary flex-1 py-3 text-sm font-bold justify-center shadow-lg shadow-blue-600/30">
-                Save Adjustment
+              <button type="submit" className="btn btn-primary">
+                Save adjustment
               </button>
             </div>
           </form>
         )}
       </Modal>
 
-      <Sheet isOpen={!!historyFor} onClose={() => setHistoryFor(null)} title={historyFor ? `Stock history · ${historyFor.name}` : 'Stock history'}>
+      <Sheet isOpen={!!historyFor} onClose={() => setHistoryFor(null)} title="Stock history" description={historyFor ? `${historyFor.name} · ${historyFor.sku}` : undefined}>
         {historyFor && <MovementHistory product={historyFor} />}
       </Sheet>
-    </div>
+    </>
   );
 };
 

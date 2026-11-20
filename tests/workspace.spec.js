@@ -14,9 +14,9 @@ test.beforeEach(async ({ request }) => {
 });
 
 async function login(page, who = ADMIN) {
-  await page.goto('/');
+  await page.goto('/signin');
   await page.getByLabel('Email').fill(who.email);
-  await page.getByLabel('Password').fill(who.password);
+  await page.getByLabel('Password', { exact: true }).fill(who.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByTestId('account-menu')).toBeVisible();
 }
@@ -26,6 +26,7 @@ const inventoryRow = (page, sku) => page.locator(`[data-testid="inventory-row"][
 test.describe('authentication', () => {
   test('protected screens require sign-in and the API rejects anonymous calls', async ({ page, request }) => {
     await page.goto('/products');
+    await expect(page).toHaveURL(/\/signin$/);
     await expect(page.getByRole('heading', { name: /Sign in to/ })).toBeVisible();
     await expect(page.getByTestId('product-card')).toHaveCount(0);
     const res = await request.get('/api/products');
@@ -33,13 +34,13 @@ test.describe('authentication', () => {
   });
 
   test('wrong password shows an error; login and logout work', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/signin');
     await page.getByLabel('Email').fill(ADMIN.email);
-    await page.getByLabel('Password').fill('wrong-password');
+    await page.getByLabel('Password', { exact: true }).fill('wrong-password');
     await page.getByRole('button', { name: 'Sign in' }).click();
     await expect(page.getByRole('alert')).toContainText('Email or password is incorrect');
 
-    await page.getByLabel('Password').fill(ADMIN.password);
+    await page.getByLabel('Password', { exact: true }).fill(ADMIN.password);
     await page.getByRole('button', { name: 'Sign in' }).click();
     await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
 
@@ -60,7 +61,7 @@ test.describe('authentication', () => {
   });
 
   test('keyboard-only sign-in', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/signin');
     await expect(page.getByLabel('Email')).toBeFocused();
     await page.keyboard.type(ADMIN.email);
     await page.keyboard.press('Tab');
@@ -78,7 +79,7 @@ test.describe('permissions', () => {
     await login(page, STAFF);
     await page.getByRole('link', { name: 'Products' }).click();
     await expect(page.getByTestId('product-card').first()).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Create Product' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add product' })).toBeVisible();
     await expect(page.getByRole('button', { name: /^Delete / })).toHaveCount(0);
 
     await page.getByRole('link', { name: 'Settings' }).click();
@@ -105,13 +106,13 @@ test.describe('products', () => {
   test('create, edit and delete persist across reloads', async ({ page }) => {
     await login(page);
     await page.getByRole('link', { name: 'Products' }).click();
-    await page.getByRole('button', { name: 'Create Product' }).click();
-    await page.getByLabel('Product Label / Title').fill('E2E Desk Lamp');
-    await page.getByLabel('SKU Identifier').fill('e2e lamp 1');
-    await page.getByLabel('Selling Price ($)').fill('24.50');
-    await page.getByLabel('Unit Cost ($)').fill('9');
-    await page.getByLabel('Opening Stock').fill('12');
-    await page.getByRole('button', { name: 'Save & Publish Product' }).click();
+    await page.getByRole('button', { name: 'Add product' }).click();
+    await page.getByLabel('Name', { exact: true }).fill('E2E Desk Lamp');
+    await page.getByLabel('SKU', { exact: true }).fill('e2e lamp 1');
+    await page.getByLabel('Price ($)', { exact: true }).fill('24.50');
+    await page.getByLabel('Unit cost ($)').fill('9');
+    await page.getByLabel('Opening stock').fill('12');
+    await page.getByRole('button', { name: 'Save product' }).click();
     await expect(page.getByText('Product saved')).toBeVisible();
     await expect(page.getByTestId('sync-status')).toContainText('All changes saved');
 
@@ -126,8 +127,8 @@ test.describe('products', () => {
     await card.getByRole('button', { name: 'Edit E2E Desk Lamp' }).focus();
     await expect(card.getByRole('button', { name: 'Edit E2E Desk Lamp' })).toBeVisible();
     await page.keyboard.press('Enter');
-    await page.getByLabel('Selling Price ($)').fill('26');
-    await page.getByRole('button', { name: 'Save Changes' }).click();
+    await page.getByLabel('Price ($)', { exact: true }).fill('26');
+    await page.getByRole('button', { name: 'Save changes' }).click();
     await expect(page.getByText('Changes saved', { exact: true })).toBeVisible();
     await page.reload();
     await page.getByLabel('Search products').fill('E2E Desk');
@@ -146,18 +147,18 @@ test.describe('products', () => {
   test('duplicate SKU and invalid numbers are rejected with clear messages', async ({ page }) => {
     await login(page);
     await page.getByRole('link', { name: 'Products' }).click();
-    await page.getByRole('button', { name: 'Create Product' }).click();
-    await page.getByLabel('Product Label / Title').fill('Duplicate');
-    await page.getByLabel('SKU Identifier').fill('elec-wbh-001');
-    await page.getByLabel('Selling Price ($)').fill('-3');
-    await page.getByRole('button', { name: 'Save & Publish Product' }).click();
+    await page.getByRole('button', { name: 'Add product' }).click();
+    await page.getByLabel('Name', { exact: true }).fill('Duplicate');
+    await page.getByLabel('SKU', { exact: true }).fill('elec-wbh-001');
+    await page.getByLabel('Price ($)', { exact: true }).fill('-3');
+    await page.getByRole('button', { name: 'Save product' }).click();
     await expect(page.getByText('Enter a price of 0 or more.')).toBeVisible();
 
-    await page.getByLabel('Selling Price ($)').fill('3');
-    await page.getByRole('button', { name: 'Save & Publish Product' }).click();
+    await page.getByLabel('Price ($)', { exact: true }).fill('3');
+    await page.getByRole('button', { name: 'Save product' }).click();
     // Optimistic item is rolled back and the form re-opens with the server's field error.
     await expect(page.getByText('This SKU is already in use.')).toBeVisible();
-    await expect(page.getByLabel('Product Label / Title')).toHaveValue('Duplicate');
+    await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Duplicate');
   });
 
   test('filtering, sorting, pagination and CSV export use the server', async ({ page }) => {
@@ -225,7 +226,7 @@ test.describe('inventory and orders', () => {
     await page.getByRole('radio', { name: 'Remove stock' }).click();
     await page.getByLabel('Units', { exact: true }).fill('3');
     await page.getByLabel('Reason', { exact: true }).fill('Damaged in storage');
-    await page.getByRole('button', { name: 'Save Adjustment' }).click();
+    await page.getByRole('button', { name: 'Save adjustment' }).click();
     await expect(page.getByText('Stock saved')).toBeVisible();
 
     await page.reload();
@@ -239,17 +240,17 @@ test.describe('inventory and orders', () => {
   test('multi-item order reserves stock, advances status and cancellation restores stock', async ({ page }) => {
     await login(page);
     await page.getByRole('link', { name: 'Orders' }).click();
-    await page.getByRole('button', { name: 'New Order' }).click();
-    await page.getByLabel('Customer Full Name').fill('Playwright Buyer');
-    await page.getByLabel('Customer Email').fill('buyer@e2e.test');
-    await page.getByLabel('Delivery Address').fill('1 Test Street');
+    await page.getByRole('button', { name: 'New order' }).click();
+    await page.getByLabel('Customer name').fill('Playwright Buyer');
+    await page.getByLabel('Customer email').fill('buyer@e2e.test');
+    await page.getByLabel('Delivery address').fill('1 Test Street');
     await page.getByLabel('Product for line 1').selectOption({ label: 'Yoga Mat Premium — $59.99 (200 in stock)' });
     await page.getByLabel('Quantity for line 1').fill('2');
     await page.getByRole('button', { name: 'Add item' }).click();
     await page.getByLabel('Product for line 2').selectOption({ label: 'Artisan Coffee Beans — $19.99 (300 in stock)' });
     await page.getByLabel('Quantity for line 2').fill('3');
     await expect(page.getByText('$179.95')).toBeVisible(); // 2×59.99 + 3×19.99
-    await page.getByRole('button', { name: 'Create Order' }).click();
+    await page.getByRole('button', { name: 'Create order' }).click();
     await expect(page.getByText('Order created')).toBeVisible();
 
     const row = page.getByTestId('order-row').filter({ hasText: 'Playwright Buyer' });
@@ -262,10 +263,10 @@ test.describe('inventory and orders', () => {
 
     await page.getByRole('link', { name: 'Orders' }).click();
     const order = page.getByTestId('order-row').filter({ hasText: 'Playwright Buyer' });
-    await order.getByTestId('order-status').click();
+    await order.getByRole('button', { name: /^Start processing: ORD-/ }).click();
     await expect(order.getByTestId('order-status')).toContainText('Processing');
     await order.getByRole('button', { name: /^Cancel ORD-/ }).click();
-    await page.getByRole('button', { name: 'Cancel Order' }).click();
+    await page.getByRole('button', { name: 'Cancel order', exact: true }).click();
     await expect(page.getByText('Order cancelled')).toBeVisible();
     await expect(order.getByTestId('order-status')).toContainText('Cancelled');
 
@@ -293,8 +294,8 @@ test.describe('dashboard', () => {
     expect(api.totals.revenue).toBeCloseTo(1009.84, 2);
     const stats = page.getByTestId('dashboard-stats');
     await expect(stats).toContainText('$1,009.84', { timeout: 10_000 });
-    await expect(stats).toContainText('Total Orders');
-    await expect(page.getByText('Peak Month')).toBeVisible();
+    await expect(stats).toContainText('Orders');
+    await expect(page.getByText('Best month')).toBeVisible();
   });
 });
 
@@ -382,11 +383,13 @@ test.describe('mobile layout', () => {
 
   test('navigation drawer and no horizontal scrolling', async ({ page }) => {
     await login(page);
-    await expect(page.getByRole('link', { name: 'Products' })).not.toBeInViewport();
+    await expect(page.getByRole('link', { name: 'Products' })).toBeHidden();
     await page.getByRole('button', { name: 'Open navigation' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
     await page.getByRole('link', { name: 'Orders' }).click();
-    await expect(page.getByRole('heading', { name: 'Fulfillment & Dispatch Pipeline' })).toBeVisible();
-    for (const path of ['/', '/products', '/inventory', '/orders', '/settings']) {
+    await expect(page.getByRole('heading', { name: 'Orders' })).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    for (const path of ['/', '/signin', '/app', '/app/products', '/app/inventory', '/app/orders', '/app/analytics', '/app/settings']) {
       await page.goto(path);
       await page.waitForLoadState('networkidle');
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

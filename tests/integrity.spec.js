@@ -2,9 +2,9 @@ import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ request }) => { expect((await request.post('/__e2e/reset')).ok()).toBeTruthy(); });
 async function signIn(page, staff = false) {
-  await page.goto('/');
+  await page.goto('/signin');
   await page.getByLabel('Email').fill(staff ? 'staff@e2e.test' : 'admin@e2e.test');
-  await page.getByLabel('Password').fill(staff ? 'e2e-staff-password-123' : 'e2e-admin-password-123');
+  await page.getByLabel('Password', { exact: true }).fill(staff ? 'e2e-staff-password-123' : 'e2e-admin-password-123');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByTestId('account-menu')).toBeVisible();
 }
@@ -47,19 +47,22 @@ test('fresh product page results replace inactive local cache values', async ({ 
 });
 
 test('business currency and low-stock notification preference affect the workspace', async ({ page }) => {
-  await signIn(page); await page.getByRole('link', { name: 'Settings' }).click();
+  await signIn(page);
+  await page.getByRole('link', { name: 'Inventory' }).click();
+  await expect(page.getByTestId('low-stock-alert')).toBeVisible();
+  await page.getByRole('link', { name: 'Settings' }).click();
   await page.getByLabel('Currency code').fill('PHP');
   await page.getByLabel('Show low-stock alerts on the inventory page').uncheck();
   await page.getByRole('button', { name: 'Save settings' }).click();
   await expect(page.getByText('Business settings were updated.')).toBeVisible();
   await page.getByRole('link', { name: 'Inventory' }).click();
   await expect(page.getByTestId('low-stock-count')).toHaveText('1');
-  await expect(page.getByText('Low-stock alert:', { exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('low-stock-alert')).toHaveCount(0);
   await expect(page.getByTestId('inventory-row').filter({ hasText: 'ELEC-UCA-009' })).toContainText('₱44.99');
   await page.getByRole('link', { name: 'Products' }).click();
   await expect(page.getByTestId('product-card').filter({ hasText: 'Smart Watch Pro' })).toContainText('₱299.99');
-  await page.getByRole('button', { name: 'Create Product' }).click();
-  await expect(page.getByLabel('Selling Price (₱)')).toBeVisible();
+  await page.getByRole('button', { name: 'Add product' }).click();
+  await expect(page.getByLabel('Price (₱)', { exact: true })).toBeVisible();
 });
 
 test('password reset signs out an existing staff browser session', async ({ page, request }) => {
@@ -73,7 +76,7 @@ test('password reset signs out an existing staff browser session', async ({ page
   await page.reload();
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
   await page.getByLabel('Email').fill('staff@e2e.test');
-  await page.getByLabel('Password').fill('new-fixture-password-123');
+  await page.getByLabel('Password', { exact: true }).fill('new-fixture-password-123');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByTestId('account-menu')).toBeVisible();
 });
